@@ -100,8 +100,10 @@ export const setupChat = (bot) => {
           content:
             'The user wants you to CREATE and SEND an actual file. ' +
             'You MUST use the code_interpreter tool to generate it. ' +
+            'IMPORTANT: Always save output files to /mnt/data/ with explicit filenames. ' +
+            'Examples: plt.savefig("/mnt/data/chart.png"), df.to_excel("/mnt/data/data.xlsx"). ' +
             'Do NOT say you cannot create files. Do NOT give manual instructions. ' +
-            'Just write and execute the code — the file will be automatically sent to the user.',
+            'Just write Python code and save the result.',
         };
         const systemIdx = openAiMsgs.findIndex(m => m.role === 'system' || m.role === 'developer');
         if (systemIdx >= 0) {

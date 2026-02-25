@@ -201,28 +201,46 @@ export const codeInterpreterChat = async (messages, modelId) => {
     const text = response.output_text || '';
     const files = [];
 
+    const containerIds = [];
     for (const item of response.output || []) {
-      if (item.type === 'code_interpreter_call') {
-        console.log('[CodeInterp] tool was called, outputs:', item.outputs?.map(o => o.type));
-        for (const out of item.outputs || []) {
-          if (out.type === 'file' && out.file_id) {
-            try {
-              const fileData = await openai.files.content(out.file_id);
-              const buffer = Buffer.from(await fileData.arrayBuffer());
-              const filename = out.filename || `output_${out.file_id.slice(-6)}.txt`;
-              console.log('[CodeInterp] file ready:', filename, buffer.length, 'bytes');
-              files.push({ name: filename, buffer });
-              await openai.files.del(out.file_id).catch(() => {});
-            } catch (e) {
-              console.error('[CodeInterp] file download error:', e.message);
-            }
+      if (item.type === 'code_interpreter_call' && item.container_id) {
+        containerIds.push(item.container_id);
+      }
+    }
+
+    console.log('[CodeInterp] container_ids:', containerIds);
+
+    for (const containerId of containerIds) {
+      try {
+        const filesList = await openai.containers.files.list({ container_id: containerId });
+        console.log('[CodeInterp] files in container:', filesList.data?.length || 0);
+
+        for (const fileInfo of filesList.data || []) {
+          if (!fileInfo.bytes || fileInfo.source !== 'assistant') {
+            console.log('[CodeInterp] skip file:', fileInfo.path, 'bytes:', fileInfo.bytes);
+            continue;
+          }
+
+          try {
+            const fileContent = await openai.containers.files.content({
+              container_id: containerId,
+              file_id: fileInfo.id,
+            });
+
+            const buffer = Buffer.from(await fileContent.arrayBuffer());
+            const filename = fileInfo.path.replace(/^\/mnt\/data\//, '') || `file_${Date.now()}.txt`;
+            console.log('[CodeInterp] file ready:', filename, buffer.length, 'bytes');
+            files.push({ name: filename, buffer });
+          } catch (downloadErr) {
+            console.error('[CodeInterp] file download error:', downloadErr.message);
           }
         }
+      } catch (listErr) {
+        console.error('[CodeInterp] container files.list error:', listErr.message);
       }
     }
 
     console.log('[CodeInterp] done, files:', files.length);
-
     return { text, files };
   } catch (err) {
     wrapError(err);
