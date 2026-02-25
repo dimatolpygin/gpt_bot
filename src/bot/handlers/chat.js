@@ -15,7 +15,7 @@ import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 
 const CI_MODEL = 'gpt-4o';
-const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$, '');
+const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$/, '');
 const buildWebAppUrl = (convId) =>
   `${WEBAPP_BASE}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(WEBAPP_BASE)}`;
 
