@@ -53,8 +53,8 @@ export const setupCallbacks = (bot) => {
     const isValid = MODELS.some(m => m.id === model);
     if (!isValid) return ctx.answerCbQuery('❌ Неизвестная модель');
 
-    await setUserModel(ctx.from.id, model);
     await ctx.answerCbQuery(`✅ Модель: ${model}`);
+    await setUserModel(ctx.from.id, model);
 
     await ctx.editMessageText(
       `🧠 *Выбор модели GPT*\n\nТекущая: \`${model}\``,
@@ -94,6 +94,7 @@ export const setupCallbacks = (bot) => {
   });
 
   bot.action(/^toggle_ws:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
     const convId = parseInt(ctx.match[1]);
     const uid    = ctx.from.id;
     let enabled = await toggleWebSearch(uid);
