@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import { config } from '../config/index.js';
+import { VALID_MODELS } from '../bot/keyboards/models.js';
 
 export const redis = new Redis(config.REDIS_URL, {
   retryStrategy: (times) => Math.min(times * 50, 2000),
@@ -36,8 +37,15 @@ export const setProcessing = (uid, busy) =>
     ? redis.set(`u:${uid}:busy`, '1', 'EX', config.PROCESSING_TTL)
     : redis.del(`u:${uid}:busy`);
 
-export const getUserModel = (uid) =>
-  redis.get(`u:${uid}:model`).then(v => v || 'gpt-4o');
+const normalizeModel = (value) => {
+  if (!value) return 'gpt-4o';
+  return VALID_MODELS.includes(value) ? value : 'gpt-4o';
+};
+
+export const getUserModel = async (uid) => {
+  const model = await redis.get(`u:${uid}:model`);
+  return normalizeModel(model);
+};
 
 export const setUserModel = (uid, model) =>
   redis.set(`u:${uid}:model`, model, 'EX', 2592000);
@@ -50,6 +58,12 @@ export const toggleWebSearch = async (uid) => {
   await redis.set(`u:${uid}:websearch`, current ? '0' : '1', 'EX', 86400);
   return !current;
 };
+
+export const getCodeInterp = (userId) =>
+  redis.get(`codeinterp:${userId}`).then(v => v === '1');
+
+export const setCodeInterp = (userId, value) =>
+  redis.set(`codeinterp:${userId}`, value ? '1' : '0', 'EX', 60 * 60 * 24 * 30);
 
 export const getThinkingLevel = async (uid) => {
   const val = await redis.get(`think:${uid}`);

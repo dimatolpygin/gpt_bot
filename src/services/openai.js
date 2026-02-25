@@ -11,7 +11,7 @@ const SYSTEM = {
 
 const REASONING_MODELS = new Set([
   'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
-  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex',
+  'gpt-5.2', 'gpt-5.2-pro',
 ]);
 
 export const THINKING_EMOJI = {
@@ -163,5 +163,43 @@ export const analyzeFile = async (fileBuffer, fileName, caption, modelId) => {
     if (uploaded?.id) {
       await openai.files.del(uploaded.id).catch(() => {});
     }
+  }
+};
+
+export const codeInterpreterChat = async (messages, modelId) => {
+  try {
+    const response = await openai.responses.create({
+      model: modelId || 'gpt-4o',
+      input: messages,
+      tools: [
+        { type: 'code_interpreter', container: { type: 'auto' } },
+      ],
+      tool_choice: 'auto',
+    });
+
+    const text = response.output_text || '';
+    const files = [];
+
+    for (const item of response.output || []) {
+      if (item.type === 'code_interpreter_call') {
+        for (const out of item.outputs || []) {
+          if (out.type === 'file' && out.file_id) {
+            try {
+              const fileData = await openai.files.content(out.file_id);
+              const buffer = Buffer.from(await fileData.arrayBuffer());
+              const filename = out.filename || `output_${out.file_id.slice(-6)}.txt`;
+              files.push({ name: filename, buffer });
+              await openai.files.del(out.file_id).catch(() => {});
+            } catch (e) {
+              console.error('[CodeInterp] file download error:', e.message);
+            }
+          }
+        }
+      }
+    }
+
+    return { text, files };
+  } catch (err) {
+    wrapError(err);
   }
 };

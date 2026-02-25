@@ -11,10 +11,11 @@ export const MODELS = [
   { id: 'gpt-5',         label: 'GPT-5',            chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5.2',       label: 'GPT-5.2',          chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5.2-pro',   label: 'GPT-5.2 Pro',     chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },
-  { id: 'gpt-5.2-codex', label: 'GPT-5.2 Codex',   chat: false, vision: false, webSearch: false, maxCompTok: false, reasoning: true  },
   { id: 'gpt-5-mini',    label: 'GPT-5 Mini',       chat: true,  vision: false, webSearch: false, maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5-nano',    label: 'GPT-5 Nano',       chat: true,  vision: false, webSearch: false, maxCompTok: true,  reasoning: true  },
 ];
+
+export const VALID_MODELS = MODELS.map(m => m.id);
 
 // Хелперы — принимают строку modelId
 export const getModelMeta   = (id) => MODELS.find(m => m.id === id) ?? MODELS[0];

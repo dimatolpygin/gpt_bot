@@ -3,6 +3,11 @@ import { Input } from 'telegraf';
 const MAX_LEN = 4000;
 
 export async function safeEdit(ctx, messageId, text, extra = {}) {
+  if (!ctx?.telegram || !messageId) {
+    if (ctx?.reply) return safeReply(ctx, text, extra);
+    console.warn('[safeEdit] ctx.telegram or messageId missing, skipping edit');
+    return;
+  }
   try {
     await ctx.telegram.editMessageText(
       ctx.chat.id, messageId, null,

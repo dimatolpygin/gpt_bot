@@ -1,18 +1,18 @@
 import {
   getActiveConv, isProcessing, setProcessing, redis,
-  getUserModel, getWebSearch, getThinkingLevel,
+  getUserModel, getWebSearch, getThinkingLevel, getCodeInterp,
 } from '../../services/redis.js';
 import {
   addMessage, getMessages,
   updateConvTitle,
 } from '../../services/supabase.js';
-import { streamChat, webSearchChat, analyzePhoto, analyzeFile } from '../../services/openai.js';
+import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
-import { supportsChat, supportsVision, supportsWS } from '../keyboards/models.js';
+import { supportsChat, supportsVision, supportsWS, VALID_MODELS } from '../keyboards/models.js';
 import { mainMenu } from '../keyboards/main.js';
 import { config } from '../../config/index.js';
-import { Markup } from 'telegraf';
-import { safeEdit, safeSendLong, safeReply, stripMarkdown } from '../../utils/telegram.js';
+import { Markup, Input } from 'telegraf';
+import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 
 const buildFinalKb = (convId, wsEnabled = false) => {
   const baseKb = chatKb(convId, wsEnabled);
@@ -60,72 +60,92 @@ export const setupChat = (bot) => {
     const waitMsg = await ctx.reply('🤔 Думаю…');
 
     try {
-      // History BEFORE new message (to build OpenAI payload correctly)
       const history = await getMessages(convId, config.MAX_HISTORY);
       const isFirst = history.length === 0;
 
-      // Persist user message
       await addMessage(convId, 'user', ctx.message.text);
 
-      // Auto-title from first message
       if (isFirst) {
         const t = ctx.message.text;
         await updateConvTitle(convId, t.length > 45 ? t.slice(0, 45) + '…' : t);
       }
 
-      // Build messages for OpenAI
       const openAiMsgs = [
         ...history.map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: ctx.message.text },
       ];
 
-      const [model, wsEnabled, thinkLevel] = await Promise.all([
+      const [model, wsEnabled, thinkLevel, useCodeInterp] = await Promise.all([
         getUserModel(uid),
         getWebSearch(uid),
         getThinkingLevel(uid),
+        getCodeInterp(uid),
       ]);
+      const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
 
-      if (!supportsChat(model)) {
+      if (!supportsChat(safeModel)) {
         await ctx.reply(
-          `⛔ Модель \`${model}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
+          `⛔ Модель \`${safeModel}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
           { parse_mode: 'Markdown', ...chatKb(convId) }
         );
         return;
       }
 
-      const wsAllowed = wsEnabled && supportsWS(model);
-      let lastEdit = 0;
-      let finalText = '';
-      const handleChunk = async (_delta, full) => {
-        finalText = full;
-        const now = Date.now();
-        if (now - lastEdit > config.STREAM_THROTTLE) {
-          lastEdit = now;
-          const preview = full.length > 4000 ? '…' + full.slice(-4000) : full;
-          await safeEdit(ctx, waitMsg.message_id, preview + ' ▌');
-        }
-      };
-
-      const streamResult = wsAllowed
-        ? await webSearchChat(openAiMsgs, model, handleChunk, { thinkingLevel: thinkLevel })
-        : await streamChat(openAiMsgs, model, handleChunk, { thinkingLevel: thinkLevel });
-      finalText = finalText || streamResult;
-
-      await addMessage(convId, 'assistant', finalText, model);
+      const wsAllowed = wsEnabled && supportsWS(safeModel);
       const finalKb = buildFinalKb(convId, wsAllowed);
-      await safeSendLong(
-        ctx,
-        finalText,
-        waitMsg.message_id,
-        { parse_mode: 'Markdown', ...finalKb }
-      );
+      let finalText = '';
 
+      if (useCodeInterp) {
+        await safeEdit(ctx, waitMsg.message_id, '🐍 Выполняю код...');
+        const { text, files } = await codeInterpreterChat(openAiMsgs, safeModel);
+        finalText = text;
+        await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
+        for (const f of files) {
+          await ctx.replyWithDocument(
+            Input.fromBuffer(f.buffer, f.name),
+            { caption: `📎 ${f.name}` }
+          ).catch(() => {});
+        }
+      } else {
+        let lastEdit = 0;
+        const handleChunk = async (_delta, full) => {
+          finalText = full;
+          const now = Date.now();
+          if (now - lastEdit > config.STREAM_THROTTLE) {
+            lastEdit = now;
+            const preview = full.length > 4000 ? '…' + full.slice(-4000) : full;
+            await safeEdit(ctx, waitMsg.message_id, preview + ' ▌');
+          }
+        };
+
+        const streamResult = wsAllowed
+          ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
+          : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
+        finalText = finalText || streamResult;
+        await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
+      }
+
+      if (convId) {
+        await addMessage(convId, 'assistant', finalText, safeModel);
+      }
     } catch (err) {
       console.error('[Chat] error:', err.message);
-      await safeEdit(
-        ctx.telegram, ctx.chat.id, waitMsg.message_id,
-        `❌ Ошибка: ${err.message}`
-      );
+      const isModelError = err?.message?.includes('model')
+        || err?.message?.includes('недоступна')
+        || err?.message?.includes('does not exist')
+        || err?.status === 404;
+      const errorText = isModelError
+        ? `❌ Модель недоступна в вашем аккаунте.\n\nПереключитесь на *gpt-4o* через меню 👉 Модель.`
+        : `❌ Ошибка: ${err.message}`;
+      try {
+        if (waitMsg?.message_id) {
+          await safeEdit(ctx, waitMsg.message_id, errorText);
+        } else {
+          await safeReply(ctx, errorText);
+        }
+      } catch (replyErr) {
+        console.error('[Chat] failed to send error message:', replyErr.message);
+      }
     } finally {
       await setProcessing(uid, false);
     }

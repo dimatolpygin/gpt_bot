@@ -1,5 +1,5 @@
 import { Markup } from 'telegraf';
-import { getThinkingLevel, getUserModel } from '../../services/redis.js';
+import { getThinkingLevel, getUserModel, getCodeInterp } from '../../services/redis.js';
 import { supportsReasoning } from './models.js';
 import { THINKING_EMOJI } from '../../services/openai.js';
 
@@ -20,6 +20,14 @@ export const mainMenu = async (userId) => {
       ),
     ]);
   }
+
+  const codeInterp = await getCodeInterp(userId);
+  rows.push([
+    Markup.button.callback(
+      `🐍 Code Interpreter: ${codeInterp ? 'вкл' : 'выкл'}`,
+      'toggle_codeinterp'
+    ),
+  ]);
 
   return Markup.inlineKeyboard(rows);
 };

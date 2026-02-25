@@ -5,6 +5,7 @@ import {
   getUserModel, setUserModel,
   toggleWebSearch, getThinkingLevel,
   setThinkingLevel, nextThinkingLevel,
+  getCodeInterp, setCodeInterp,
 } from '../../services/redis.js';
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
 import { mainMenu }      from '../keyboards/main.js';
@@ -92,6 +93,22 @@ export const setupCallbacks = (bot) => {
       `medium — стандарт\n` +
       `high — глубокий анализ\n` +
       `xhigh — максимум (медленно, дорого)`,
+      { parse_mode: 'Markdown', ...menu }
+    ).catch(() => {});
+  });
+
+  bot.action('toggle_codeinterp', async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id;
+    const current = await getCodeInterp(userId);
+    const next = !current;
+    await setCodeInterp(userId, next);
+
+    const menu = await mainMenu(userId);
+    await ctx.editMessageText(
+      next
+        ? '🐍 Code Interpreter включён.\nМодель может писать Python-код, строить графики и создавать файлы.'
+        : '🐍 Code Interpreter выключен.',
       { parse_mode: 'Markdown', ...menu }
     ).catch(() => {});
   });
