@@ -1,0 +1,15 @@
+токен бота: "7723543403:AAHLblOfXD6U4L3T4HXpdzPY9UPD0xN6klk"
+апи ключ openai: "sk-proj-36yk5m7n4Bshx10e1RxVbxGGHHHl3Ripz1-liHXt2y4exLk5pQDaUPaeC3LFkL82YXoLoy7142T3BlbkFJKXFYKBROFKSsPGgXTFHqRU_zlkn1L3EXXP6M74ugzP_5A5cLkVtFJuqk5Ruty_-Bq9O26OjvYAv"
+-------------------
+SUPABASE
+url: 'https://qedlvrxluxkfmdbzmlnl.supabase.co',
+anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlZGx2cnhsdXhrZm1kYnptbG5sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNTkwNDIsImV4cCI6MjA4NjczNTA0Mn0.FkgeEkdoYh-f6snE0uuU69Ayk3Tx8XiUk25M3OCjPds'
+token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlZGx2cnhsdXhrZm1kYnptbG5sIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTE1OTA0MiwiZXhwIjoyMDg2NzM1MDQyfQ.jFEHCWuorjG0t6PqhR5h1fHjvF_mlDT35QqhVx-iQwk'
+redis: 'redis-cli -u redis://default:Cf6XSGGDkSCryAq8kI8wJx12femMEmUZ@redis-13270.c250.eu-central-1-1.ec2.cloud.redislabs.com:13270'
+-----------
+PROXY:
+ip: '196.19.120.72'
+port(http): '8000'
+логин: '1Mz7ub'
+пароль: 'sgUSRm'
+страна: 'Германия'

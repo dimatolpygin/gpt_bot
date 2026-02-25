@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>История диалога</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--tg-theme-bg-color, #fff);
+      color: var(--tg-theme-text-color, #000);
+      min-height: 100vh;
+      padding-bottom: 24px;
+    }
+
+    /* ── Header ── */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--tg-theme-bg-color, #fff);
+      border-bottom: 1px solid var(--tg-theme-hint-color, #ddd);
+      padding: 12px 16px;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .header .subtitle {
+      font-size: 12px;
+      color: var(--tg-theme-hint-color, #888);
+      margin-top: 2px;
+    }
+
+    /* ── Messages ── */
+    #messages {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .msg {
+      display: flex;
+      flex-direction: column;
+      max-width: 85%;
+    }
+    .msg.user    { align-self: flex-end; align-items: flex-end; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user      .bubble {
+      background: var(--tg-theme-button-color, #2e87f0);
+      color: var(--tg-theme-button-text-color, #fff);
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant .bubble {
+      background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+      color: var(--tg-theme-text-color, #000);
+      border-bottom-left-radius: 4px;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--tg-theme-hint-color, #888);
+    }
+    .model-badge {
+      background: var(--tg-theme-secondary-bg-color, #e8e8e8);
+      color: var(--tg-theme-hint-color, #666);
+      padding: 1px 6px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    /* ── States ── */
+    .state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 24px;
+      color: var(--tg-theme-hint-color, #888);
+      font-size: 14px;
+      text-align: center;
+      gap: 12px;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid var(--tg-theme-hint-color, #ccc);
+      border-top-color: var(--tg-theme-button-color, #2e87f0);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="h1" id="conv-title">Загрузка…</div>
+  <div class="subtitle" id="conv-meta"></div>
+</div>
+
+<div id="messages">
+  <div class="state"><div class="spinner"></div><span>Загружаю историю…</span></div>
+</div>
+
+<script>
+  const tg     = window.Telegram.WebApp;
+  tg.expand();
+  tg.ready();
+
+  const params  = new URLSearchParams(window.location.search);
+  const convId  = params.get('convId');
+  const API_URL = params.get('api') || '';
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit',
+                                        hour:'2-digit', minute:'2-digit' });
+  };
+
+  async function load() {
+    const container = document.getElementById('messages');
+    try {
+      const res  = await fetch(`${API_URL}/api/history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ convId, initData: tg.initData }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Ошибка сервера');
+
+      document.getElementById('conv-title').textContent = json.title || 'Диалог';
+      document.getElementById('conv-meta').textContent  =
+        `${json.messages.length} сообщений`;
+
+      if (json.messages.length === 0) {
+        container.innerHTML = '<div class="state">💬 Диалог пуст</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      for (const m of json.messages) {
+        const div  = document.createElement('div');
+        div.className = `msg ${m.role}`;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = m.content;
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+
+        const role = m.role === 'user' ? '👤 Вы' : '🤖 GPT';
+        let inner = `<span>${role}</span><span>${fmt(m.created_at)}</span>`;
+        if (m.role === 'assistant' && m.model) {
+          inner += `<span class="model-badge">${m.model}</span>`;
+        }
+        meta.innerHTML = inner;
+
+        div.appendChild(bubble);
+        div.appendChild(meta);
+        container.appendChild(div);
+      }
+
+      // Scroll to bottom
+      window.scrollTo(0, document.body.scrollHeight);
+
+    } catch (e) {
+      container.innerHTML = `<div class="state">❌ ${e.message}</div>`;
+    }
+  }
+
+  if (!convId) {
+    document.getElementById('messages').innerHTML =
+      '<div class="state">❌ convId не передан</div>';
+  } else {
+    load();
+  }
+</script>
+</body>
+</html>

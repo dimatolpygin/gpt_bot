@@ -1,0 +1,129 @@
+# Task v5 — WebApp: полная история диалога
+
+Цель: кнопка под каждым ответом GPT открывает Telegram WebApp с историей переписки.
+Файлы webapp/index.html и src/server.js уже созданы в архиве — скопируй их в проект.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 0 — Supabase: добавить колонку model в bot_messages
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Выполни в Supabase SQL Editor:
+  ALTER TABLE bot_messages ADD COLUMN IF NOT EXISTS model TEXT;
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 1 — Установить express
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  npm install express
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 2 — Скопировать файлы из архива в проект
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  src/webapp/index.html  → уже в архиве, скопировать
+  src/server.js          → уже в архиве, скопировать
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 3 — src/config/index.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Добавить два поля:
+  PORT:       process.env.PORT       || 3000,
+  WEBAPP_URL: process.env.WEBAPP_URL || 'http://localhost:3000',
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 4 — src/services/supabase.js → addMessage
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Изменить сигнатуру функции addMessage — добавить опциональный параметр model:
+
+  export const addMessage = async (convId, role, content, model = null) => {
+
+Добавить model в insert:
+  .insert({ conversation_id: convId, role, content, model })
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 5 — src/bot/handlers/chat.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A) При сохранении ответа ассистента — передавать модель:
+
+  Найди:   await addMessage(convId, 'assistant', finalText);
+  Замени:  await addMessage(convId, 'assistant', finalText, model);
+
+  То же для webSearch ветки:
+  Найди:   await addMessage(convId, 'assistant', wsResult);
+  Замени:  await addMessage(convId, 'assistant', wsResult, model);
+
+  То же для photo:
+  Найди:   await addMessage(convId, 'assistant', result);
+  Замени:  await addMessage(convId, 'assistant', result, model);
+
+B) После финального edit — добавить кнопку "Просмотреть весь диалог".
+
+  Добавить импорт: import { config } from '../../config/index.js';
+
+  Создать функцию buildFinalKb(convId):
+
+    const buildFinalKb = (convId) => {
+      const { Markup } = require('telegraf'); // или импорт вверху файла
+      const webappUrl = `${config.WEBAPP_URL}/webapp/index.html?convId=${convId}&api=${config.WEBAPP_URL}`;
+      return Markup.inlineKeyboard([
+        [Markup.button.webApp('💬 Просмотреть весь диалог', webappUrl)],
+        ...chatKb(convId).reply_markup.inline_keyboard,
+      ]);
+    };
+
+  ВАЖНО: Telegraf уже импортирован в файле — не дублируй, просто добавь деструктуризацию:
+    import { Markup } from 'telegraf';  ← добавить если ещё нет
+
+  Затем вместо chatKb(convId) в финальном edit использовать buildFinalKb(convId):
+
+    await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, finalText, buildFinalKb(convId));
+
+  То же для websearch и photo финальных ответов.
+
+  Для случая с несколькими частями (parts.length > 1):
+  Только последний чанк рендерить с buildFinalKb(convId).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 6 — src/index.js
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Добавить импорт:
+  import { startServer } from './server.js';
+
+После строки await bot.launch(...); добавить:
+  startServer();
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 7 — .env.example
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Добавить:
+  PORT=3000
+  # WEBAPP_URL — публичный URL где доступен сервер (ngrok/beget/vps)
+  # Для теста локально: используй ngrok → ngrok http 3000
+  WEBAPP_URL=https://your-domain.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ШАГ 8 — docker-compose.yml
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+В сервисе bot добавить:
+  ports:
+    - "3000:3000"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ПОСЛЕ ИЗМЕНЕНИЙ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. В .env добавить: PORT=3000 и WEBAPP_URL=http://localhost:3000 (для локального теста)
+2. Запустить: npm run dev
+3. Ожидать в логах:
+   ✅ [Redis] connected
+   ✅ 🌐 WebApp server: http://localhost:3000/webapp
+   ✅ 🤖 Bot is running
+4. Для теста WebApp локально — запустить ngrok: ngrok http 3000
+   Скопировать https URL → вставить в .env как WEBAPP_URL
+5. Написать список всех изменённых файлов
