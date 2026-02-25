@@ -24,7 +24,12 @@ const FILE_KEYWORDS = [
 
 export const needsCodeInterpreter = (text = '') => {
   const lower = text.toLowerCase();
-  return FILE_KEYWORDS.some(kw => lower.includes(kw));
+
+  const hasFormat = /\b(pdf|xlsx|xls|csv|docx|doc|txt|png|svg|zip|pptx)\b/.test(lower);
+  const hasAction = /(создай|создайте|сделай|сделайте|сгенерируй|сгенерируйте|напиши|напишите|выгрузи|выгрузите|конвертируй|конвертируйте|преобразуй|экспортируй|отправь|скачать|построй|нарисуй|create|generate|make|export|convert|draw|plot|build)/i.test(lower);
+  const hasPhrases = /(создай(те)? файл|сделай(те)? файл|сгенерируй(те)? файл|нарисуй(те)? (диаграмму|график|таблицу)|построй(те)? график|create file|generate file|make file|draw chart|plot graph)/i.test(lower);
+
+  return hasPhrases || (hasFormat && hasAction);
 };
 
 export const THINKING_EMOJI = {
@@ -180,6 +185,7 @@ export const analyzeFile = async (fileBuffer, fileName, caption, modelId) => {
 };
 
 export const codeInterpreterChat = async (messages, modelId) => {
+  console.log('[CodeInterp] starting, model:', modelId);
   try {
     const response = await openai.responses.create({
       model: modelId || 'gpt-4o',
@@ -190,17 +196,21 @@ export const codeInterpreterChat = async (messages, modelId) => {
       tool_choice: 'auto',
     });
 
+    console.log('[CodeInterp] output items:', response.output?.map(i => i.type));
+
     const text = response.output_text || '';
     const files = [];
 
     for (const item of response.output || []) {
       if (item.type === 'code_interpreter_call') {
+        console.log('[CodeInterp] tool was called, outputs:', item.outputs?.map(o => o.type));
         for (const out of item.outputs || []) {
           if (out.type === 'file' && out.file_id) {
             try {
               const fileData = await openai.files.content(out.file_id);
               const buffer = Buffer.from(await fileData.arrayBuffer());
               const filename = out.filename || `output_${out.file_id.slice(-6)}.txt`;
+              console.log('[CodeInterp] file ready:', filename, buffer.length, 'bytes');
               files.push({ name: filename, buffer });
               await openai.files.del(out.file_id).catch(() => {});
             } catch (e) {
@@ -210,6 +220,8 @@ export const codeInterpreterChat = async (messages, modelId) => {
         }
       }
     }
+
+    console.log('[CodeInterp] done, files:', files.length);
 
     return { text, files };
   } catch (err) {

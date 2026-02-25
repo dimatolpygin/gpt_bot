@@ -95,6 +95,21 @@ export const setupChat = (bot) => {
 
       if (useCodeInterp) {
         await safeEdit(ctx, waitMsg.message_id, '🐍 Создаю файл...');
+        const fileInstruction = {
+          role: 'developer',
+          content:
+            'The user wants you to CREATE and SEND an actual file. ' +
+            'You MUST use the code_interpreter tool to generate it. ' +
+            'Do NOT say you cannot create files. Do NOT give manual instructions. ' +
+            'Just write and execute the code — the file will be automatically sent to the user.',
+        };
+        const systemIdx = openAiMsgs.findIndex(m => m.role === 'system' || m.role === 'developer');
+        if (systemIdx >= 0) {
+          openAiMsgs.splice(systemIdx + 1, 0, fileInstruction);
+        } else {
+          openAiMsgs.unshift(fileInstruction);
+        }
+
         const { text, files } = await codeInterpreterChat(openAiMsgs, safeModel);
         finalText = text;
         await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
@@ -103,6 +118,9 @@ export const setupChat = (bot) => {
             Input.fromBuffer(f.buffer, f.name),
             { caption: `📎 ${f.name}` }
           ).catch(() => {});
+        }
+        if (files.length === 0 && finalText.length > 0) {
+          console.warn('[CodeInterp] model responded with text only, no files generated');
         }
       } else {
         let lastEdit = 0;
