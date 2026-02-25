@@ -12,7 +12,7 @@ import { supportsChat, supportsVision, supportsWS } from '../keyboards/models.js
 import { mainMenu } from '../keyboards/main.js';
 import { config } from '../../config/index.js';
 import { Markup } from 'telegraf';
-import { safeEdit, safeSendLong } from '../utils/telegram.js';
+import { safeEdit, safeSendLong, safeReply, stripMarkdown } from '../../utils/telegram.js';
 
 const buildFinalKb = (convId, wsEnabled = false) => {
   const baseKb = chatKb(convId, wsEnabled);
