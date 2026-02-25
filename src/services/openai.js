@@ -216,15 +216,23 @@ export const codeInterpreterChat = async (messages, modelId) => {
         console.log('[CodeInterp] files in container:', filesList.data?.length || 0);
 
         for (const fileInfo of filesList.data || []) {
-          if (!fileInfo.bytes || fileInfo.source !== 'assistant') {
-            console.log('[CodeInterp] skip file:', fileInfo.path, 'bytes:', fileInfo.bytes);
+          if (fileInfo.source !== 'assistant') {
+            console.log('[CodeInterp] skip user file:', fileInfo.path);
             continue;
+          }
+
+          if (!fileInfo.bytes) {
+            console.warn('[CodeInterp] bytes: null for file:', fileInfo.path, '(likely non-ASCII filename)');
           }
 
           try {
             const fileContent = await openai.containers.files.content(containerId, fileInfo.id);
 
             const buffer = Buffer.from(await fileContent.arrayBuffer());
+            if (buffer.length === 0) {
+              console.warn('[CodeInterp] empty buffer for:', fileInfo.path);
+              continue;
+            }
             const filename = fileInfo.path.replace(/^\/mnt\/data\//, '') || `file_${Date.now()}.txt`;
             console.log('[CodeInterp] file ready:', filename, buffer.length, 'bytes');
             files.push({ name: filename, buffer });

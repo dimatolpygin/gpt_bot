@@ -100,13 +100,17 @@ export const setupChat = (bot) => {
           content:
             'The user wants you to CREATE and SEND an actual file. ' +
             'You MUST use the code_interpreter tool to generate it. ' +
-            'CRITICAL: Always save output files to /mnt/data/ with explicit filenames. ' +
-            'Examples:\n' +
-            '- Use plt.savefig("/mnt/data/chart.png") for PNG\n' +
-            '- Use df.to_excel("/mnt/data/data.xlsx", index=False) for Excel\n' +
-            '- Use open("/mnt/data/text.txt", "w") for TXT\n' +
-            'Do NOT say you cannot create files. Do NOT give manual instructions. ' +
-            'Just write Python code and save the result.',
+            'CRITICAL RULES:\n' +
+            '1. Save ALL output to /mnt/data/ directory.\n' +
+            '2. Use ONLY ASCII letters, digits, underscores, or hyphens in filenames.\n' +
+            '3. NO Cyrillic, Chinese, Arabic, emoji, or spaces.\n' +
+            '4. Good examples: essay_monster.pdf, data_report.xlsx, chart_2024.png\n' +
+            '5. Bad examples: эссе.pdf, 文件.xlsx, my file.docx\n' +
+            'Code examples:\n' +
+            '- PDF: pdf.output("/mnt/data/essay_monster.pdf")\n' +
+            '- Excel: df.to_excel("/mnt/data/report.xlsx", index=False)\n' +
+            '- PNG: plt.savefig("/mnt/data/chart.png")\n' +
+            'Do NOT say you cannot create files. Just write and execute Python code.',
         };
         const systemIdx = openAiMsgs.findIndex(m => m.role === 'system' || m.role === 'developer');
         if (systemIdx >= 0) {
