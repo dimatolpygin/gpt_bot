@@ -74,10 +74,12 @@ const withRetry = async (fn, maxRetries = 3) => {
 // ── Streaming через Chat Completions API ─────────────────────────────────────
 export const streamChat = async (messages, modelId, onChunk, options = {}) => {
   try {
-    const { thinkingLevel = 'none', system } = options;
+    const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const systemMessage = system || { role: 'system', content: SYSTEM.content };
-    const payload = [systemMessage, ...messages];
+    const hasSystem = messages.length > 0 && messages[0].role === 'system';
+    const systemMessage = hasSystem ? messages[0] : { role: 'system', content: SYSTEM.content };
+    const restMessages = hasSystem ? messages.slice(1) : messages;
+    const payload = [systemMessage, ...restMessages];
 
     const params = {
       model,
@@ -107,10 +109,12 @@ export const streamChat = async (messages, modelId, onChunk, options = {}) => {
 // ── Streaming с веб-поиском (Responses API) ──────────────────────────────────
 export const webSearchChat = async (messages, modelId, onChunk, options = {}) => {
   try {
-    const { thinkingLevel = 'none', system } = options;
+    const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const systemMessage = system || { role: 'system', content: SYSTEM.content };
-    const payload = [systemMessage, ...messages];
+    const hasSystem = messages.length > 0 && messages[0].role === 'system';
+    const systemMessage = hasSystem ? messages[0] : { role: 'system', content: SYSTEM.content };
+    const restMessages = hasSystem ? messages.slice(1) : messages;
+    const payload = [systemMessage, ...restMessages];
 
     const params = {
       model,

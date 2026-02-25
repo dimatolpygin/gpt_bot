@@ -147,6 +147,9 @@ export const getActivePrompt = async (userId) => {
     .eq('user_id', userId)
     .eq('is_active', true)
     .single();
-  if (error) return null;
+  if (error && error.code !== 'PGRST116') {
+    console.error('[Prompt] getActivePrompt error:', error.message);
+  }
+  console.log('[Prompt] getActivePrompt result for', userId, ':', data ? data.name : 'null');
   return data || null;
 };

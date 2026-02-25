@@ -8,6 +8,8 @@ import { Markup } from 'telegraf';
 export const MODELS = [
   { id: 'gpt-4o',        label: 'GPT-4o',          chat: true,  vision: true,  webSearch: true,  maxCompTok: false, reasoning: false },
   { id: 'gpt-4o-mini',   label: 'GPT-4o Mini',     chat: true,  vision: true,  webSearch: true,  maxCompTok: false, reasoning: false },
+  { id: 'gpt-4.1',       label: 'GPT-4.1',         chat: true,  vision: true,  webSearch: false, maxCompTok: true,  reasoning: true  },
+  { id: 'gpt-4.1-mini',  label: 'GPT-4.1 mini',    chat: true,  vision: true,  webSearch: false, maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5',         label: 'GPT-5',            chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5.2',       label: 'GPT-5.2',          chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },
   { id: 'gpt-5.2-pro',   label: 'GPT-5.2 Pro',     chat: true,  vision: true,  webSearch: true,  maxCompTok: true,  reasoning: true  },

@@ -79,16 +79,24 @@ const processUserText = async (ctx, userText, waitMsg) => {
 
   const wsAllowed = wsEnabled && supportsWS(safeModel);
   const finalKb = buildFinalKb(convId, wsAllowed);
-  const activePrompt = await getActivePrompt(uid);
-  const systemOverride = activePrompt ? { role: 'system', content: activePrompt.content } : null;
   const thinkingInterval = startThinkingAnimation(ctx, waitMsg.message_id, safeModel);
 
   let finalText = '';
   try {
-    const openAiMsgs = [
+    let openAiMsgs = [
       ...history.map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: messageText },
     ];
+    const activePrompt = await getActivePrompt(uid);
+    console.log('[Prompt] active prompt:', activePrompt ? `"${activePrompt.name}"` : 'none (default)');
+    if (activePrompt) {
+      const filtered = openAiMsgs.filter(m => m.role !== 'system' && m.role !== 'developer');
+      openAiMsgs = [
+        { role: 'system', content: activePrompt.content },
+        ...filtered,
+      ];
+      console.log('[Prompt] injected:', `${activePrompt.content.slice(0, 80)}...`);
+    }
     const useCodeInterp = needsCodeInterpreter(messageText);
 
     if (useCodeInterp) {
@@ -174,8 +182,8 @@ const processUserText = async (ctx, userText, waitMsg) => {
       };
 
       const streamResult = wsAllowed
-        ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel, system: systemOverride })
-        : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel, system: systemOverride });
+        ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
+        : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
       finalText = finalText || streamResult;
       await safeSendLong(ctx, finalText, waitMsg.message_id, finalKb);
     }
