@@ -100,8 +100,11 @@ export const setupChat = (bot) => {
           content:
             'The user wants you to CREATE and SEND an actual file. ' +
             'You MUST use the code_interpreter tool to generate it. ' +
-            'IMPORTANT: Always save output files to /mnt/data/ with explicit filenames. ' +
-            'Examples: plt.savefig("/mnt/data/chart.png"), df.to_excel("/mnt/data/data.xlsx"). ' +
+            'CRITICAL: Always save output files to /mnt/data/ with explicit filenames. ' +
+            'Examples:\n' +
+            '- Use plt.savefig("/mnt/data/chart.png") for PNG\n' +
+            '- Use df.to_excel("/mnt/data/data.xlsx", index=False) for Excel\n' +
+            '- Use open("/mnt/data/text.txt", "w") for TXT\n' +
             'Do NOT say you cannot create files. Do NOT give manual instructions. ' +
             'Just write Python code and save the result.',
         };

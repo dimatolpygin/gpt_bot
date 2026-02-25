@@ -201,18 +201,18 @@ export const codeInterpreterChat = async (messages, modelId) => {
     const text = response.output_text || '';
     const files = [];
 
-    const containerIds = [];
+    const containerIds = new Set();
     for (const item of response.output || []) {
       if (item.type === 'code_interpreter_call' && item.container_id) {
-        containerIds.push(item.container_id);
+        containerIds.add(item.container_id);
       }
     }
 
-    console.log('[CodeInterp] container_ids:', containerIds);
+    console.log('[CodeInterp] unique container_ids:', Array.from(containerIds));
 
     for (const containerId of containerIds) {
       try {
-        const filesList = await openai.containers.files.list({ container_id: containerId });
+        const filesList = await openai.containers.files.list(containerId);
         console.log('[CodeInterp] files in container:', filesList.data?.length || 0);
 
         for (const fileInfo of filesList.data || []) {
@@ -222,10 +222,7 @@ export const codeInterpreterChat = async (messages, modelId) => {
           }
 
           try {
-            const fileContent = await openai.containers.files.content({
-              container_id: containerId,
-              file_id: fileInfo.id,
-            });
+            const fileContent = await openai.containers.files.content(containerId, fileInfo.id);
 
             const buffer = Buffer.from(await fileContent.arrayBuffer());
             const filename = fileInfo.path.replace(/^\/mnt\/data\//, '') || `file_${Date.now()}.txt`;
