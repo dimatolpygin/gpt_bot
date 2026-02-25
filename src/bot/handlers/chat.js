@@ -12,39 +12,7 @@ import { supportsChat, supportsVision, supportsWS } from '../keyboards/models.js
 import { mainMenu } from '../keyboards/main.js';
 import { config } from '../../config/index.js';
 import { Markup } from 'telegraf';
-
-const MAX_LEN = 4000;
-
-// ─── Safe edit with Markdown → plain fallback ─────────────────────────
-
-const safeEdit = async (telegram, chatId, msgId, text, extra = {}) => {
-  try {
-    await telegram.editMessageText(chatId, msgId, undefined, text, {
-      parse_mode: 'Markdown', ...extra,
-    });
-  } catch (e) {
-    if (e.description?.includes('parse')) {
-      // Fallback to plain text
-      await telegram.editMessageText(chatId, msgId, undefined, text, extra)
-        .catch(() => {});
-    }
-    // Ignore "not modified" and "message to edit not found"
-  }
-};
-
-// ─── Split long messages ──────────────────────────────────────────────
-
-const splitText = (text) => {
-  const parts = [];
-  while (text.length > MAX_LEN) {
-    let cut = text.lastIndexOf('\n', MAX_LEN);
-    if (cut < 1) cut = MAX_LEN;
-    parts.push(text.slice(0, cut));
-    text = text.slice(cut).trimStart();
-  }
-  parts.push(text);
-  return parts;
-};
+import { safeEdit, safeSendLong } from '../utils/telegram.js';
 
 const buildFinalKb = (convId, wsEnabled = false) => {
   const baseKb = chatKb(convId, wsEnabled);
@@ -116,6 +84,7 @@ export const setupChat = (bot) => {
         getWebSearch(uid),
         getThinkingLevel(uid),
       ]);
+
       if (!supportsChat(model)) {
         await ctx.reply(
           `⛔ Модель \`${model}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
@@ -125,84 +94,31 @@ export const setupChat = (bot) => {
       }
 
       const wsAllowed = wsEnabled && supportsWS(model);
-
-      if (wsAllowed) {
-        await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, '🌐 Ищу в интернете…');
-        const wsResult = await webSearchChat(openAiMsgs, model);
-        await addMessage(convId, 'assistant', wsResult, model);
-
-        const parts = splitText(wsResult);
-        const baseKb  = chatKb(convId, true);
-        const finalKb = buildFinalKb(convId, true);
-
-        if (parts.length === 1) {
-          await safeEdit(
-            ctx.telegram, ctx.chat.id, waitMsg.message_id,
-            wsResult,
-            finalKb
-          );
-        } else {
-          await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-          for (let i = 0; i < parts.length; i++) {
-            const isLast = i === parts.length - 1;
-            const extra = isLast
-              ? { parse_mode: 'Markdown', ...finalKb }
-              : { parse_mode: 'Markdown' };
-            await ctx.reply(parts[i], extra).catch(() => ctx.reply(
-              parts[i],
-              isLast ? { parse_mode: 'Markdown', ...finalKb } : { parse_mode: 'Markdown' }
-            ));
-          }
-        }
-        return;
-      }
-
       let lastEdit = 0;
       let finalText = '';
-
-      await streamChat(
-        openAiMsgs,
-        model,
-        async (accumulated) => {
-          const now = Date.now();
-          if (now - lastEdit > config.STREAM_THROTTLE) {
-            lastEdit = now;
-            const preview = accumulated.length > MAX_LEN
-              ? '…' + accumulated.slice(-MAX_LEN)
-              : accumulated;
-            await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, preview + ' ▌');
-          }
-        },
-        async (full) => { finalText = full; },
-        { thinkingLevel: thinkLevel }
-      );
-
-      // Persist assistant reply
-        await addMessage(convId, 'assistant', finalText, model);
-
-        const parts = splitText(finalText);
-        const baseKb  = chatKb(convId, wsAllowed);
-        const finalKb = buildFinalKb(convId, wsAllowed);
-
-        if (parts.length === 1) {
-          await safeEdit(
-            ctx.telegram, ctx.chat.id, waitMsg.message_id,
-            finalText,
-            finalKb
-          );
-        } else {
-          await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-          for (let i = 0; i < parts.length; i++) {
-            const isLast = i === parts.length - 1;
-            const extra  = isLast
-              ? { parse_mode: 'Markdown', ...finalKb }
-              : { parse_mode: 'Markdown' };
-            await ctx.reply(parts[i], extra).catch(() => ctx.reply(
-              parts[i],
-              isLast ? { parse_mode: 'Markdown', ...finalKb } : { parse_mode: 'Markdown' }
-            ));
-          }
+      const handleChunk = async (_delta, full) => {
+        finalText = full;
+        const now = Date.now();
+        if (now - lastEdit > config.STREAM_THROTTLE) {
+          lastEdit = now;
+          const preview = full.length > 4000 ? '…' + full.slice(-4000) : full;
+          await safeEdit(ctx, waitMsg.message_id, preview + ' ▌');
         }
+      };
+
+      const streamResult = wsAllowed
+        ? await webSearchChat(openAiMsgs, model, handleChunk, { thinkingLevel: thinkLevel })
+        : await streamChat(openAiMsgs, model, handleChunk, { thinkingLevel: thinkLevel });
+      finalText = finalText || streamResult;
+
+      await addMessage(convId, 'assistant', finalText, model);
+      const finalKb = buildFinalKb(convId, wsAllowed);
+      await safeSendLong(
+        ctx,
+        finalText,
+        waitMsg.message_id,
+        { parse_mode: 'Markdown', ...finalKb }
+      );
 
     } catch (err) {
       console.error('[Chat] error:', err.message);
@@ -235,7 +151,7 @@ export const setupChat = (bot) => {
       const doc = ctx.message.document;
       const MAX_FILE_SIZE = 20 * 1024 * 1024;
       if (doc.file_size > MAX_FILE_SIZE) {
-        await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, '❌ Файл слишком большой. Максимум 20MB.');
+        await safeEdit(ctx, waitMsg.message_id, '❌ Файл слишком большой. Максимум 20MB.');
         return;
       }
 
@@ -243,7 +159,8 @@ export const setupChat = (bot) => {
       const ext = doc.file_name?.split('.').pop()?.toLowerCase();
       if (!ext || !ALLOWED_EXTS.includes(ext)) {
         await safeEdit(
-          ctx.telegram, ctx.chat.id, waitMsg.message_id,
+          ctx,
+          waitMsg.message_id,
           `❌ Формат .${ext || '??'} не поддерживается. Допустимо: ${ALLOWED_EXTS.join(', ')}`
         );
         return;
@@ -259,27 +176,24 @@ export const setupChat = (bot) => {
       await addMessage(convId, 'user', `[Файл: ${doc.file_name}] ${caption}`);
       await addMessage(convId, 'assistant', result, model);
 
-      const parts = splitText(result);
       const finalKb = buildFinalKb(convId);
+      await safeSendLong(
+        ctx,
+        result,
+        waitMsg.message_id,
+        { parse_mode: 'Markdown', ...finalKb }
+      );
 
-      if (parts.length === 1) {
-        await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, result, finalKb);
-      } else {
-        await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-        for (let i = 0; i < parts.length; i++) {
-          const isLast = i === parts.length - 1;
-          const extra = isLast
-            ? { parse_mode: 'Markdown', ...finalKb }
-            : { parse_mode: 'Markdown' };
-          await ctx.reply(parts[i], extra).catch(() => ctx.reply(parts[i], extra));
-        }
+      if (result.length > 4000) {
+        const buffer = Buffer.from(result, 'utf-8');
+        await ctx.replyWithDocument(
+          { source: buffer, filename: 'gpt_response.txt' },
+          { caption: '📄 Полный ответ' }
+        );
       }
     } catch (err) {
       console.error('[File] analysis error:', err.message);
-      await safeEdit(
-        ctx.telegram, ctx.chat.id, waitMsg.message_id,
-        `❌ Ошибка при анализе файла: ${err.message}`
-      );
+      await safeEdit(ctx, waitMsg.message_id, `❌ Ошибка при анализе файла: ${err.message}`);
     } finally {
       await setProcessing(uid, false);
     }
@@ -323,10 +237,10 @@ export const setupChat = (bot) => {
       await addMessage(convId, 'assistant', result, model);
 
       const finalKb = buildFinalKb(convId);
-      await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, result, finalKb);
+      await safeEdit(ctx, waitMsg.message_id, result, finalKb);
     } catch (err) {
       console.error('[Photo] error:', err.message);
-      await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, `❌ Ошибка: ${err.message}`);
+      await safeEdit(ctx, waitMsg.message_id, `❌ Ошибка: ${err.message}`);
     } finally {
       await setProcessing(uid, false);
     }

@@ -9,7 +9,10 @@ const SYSTEM = {
   content: 'Ты умный и полезный AI-ассистент. Отвечай на языке пользователя. Будь чётким, структурированным и содержательным.',
 };
 
-const REASONING_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex'];
+const REASONING_MODELS = new Set([
+  'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
+  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex',
+]);
 
 export const THINKING_EMOJI = {
   none:  '💭',
@@ -19,7 +22,6 @@ export const THINKING_EMOJI = {
   xhigh: '🧠⚡',
 };
 
-// Обёртка ошибок OpenAI
 const wrapError = (err) => {
   if (err.status === 429) throw new Error('Превышен лимит запросов OpenAI. Подождите.');
   if (err.status === 401) throw new Error('Неверный OpenAI API ключ.');
@@ -28,59 +30,72 @@ const wrapError = (err) => {
   throw err;
 };
 
-const normalizeHistory = (history) => history.map(m => ({ role: m.role, content: m.content }));
-
-// ── Streaming через Responses API ──────────────────────────────────────
-export const streamChat = async (messages, modelId, onChunk, onDone, options = {}) => {
+// ── Streaming через Chat Completions API ─────────────────────────────────────
+export const streamChat = async (messages, modelId, onChunk, options = {}) => {
   try {
-    const { thinkingLevel = 'none', webSearch = false } = options;
+    const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
+    const payload = [
+      { role: 'system', content: SYSTEM.content },
+      ...messages,
+    ];
+
     const params = {
       model,
-      input: [
-        { role: 'system', content: SYSTEM.content },
-        ...normalizeHistory(messages),
-      ],
+      messages: payload,
       stream: true,
     };
 
-    if (REASONING_MODELS.includes(model) && thinkingLevel !== 'none') {
-      params.reasoning = { effort: thinkingLevel };
+    if (REASONING_MODELS.has(model) && thinkingLevel !== 'none') {
+      params.reasoning_effort = thinkingLevel;
     }
 
-    if (webSearch) {
-      params.tools = [{ type: 'web_search_preview' }];
-    }
-
-    const stream = await openai.responses.create(params);
+    const stream = await openai.chat.completions.create(params);
     let fullText = '';
     for await (const chunk of stream) {
-      const delta = chunk.delta?.text || '';
+      const delta = chunk.choices?.[0]?.delta?.content || '';
       if (delta) {
         fullText += delta;
-        if (onChunk) await onChunk(fullText);
+        if (onChunk) await onChunk(delta, fullText);
       }
     }
-    if (onDone) await onDone(fullText);
     return fullText;
   } catch (err) {
     wrapError(err);
   }
 };
 
-// ── Web Search через Responses API ───────────────────────────────────
-export const webSearchChat = async (history, modelId) => {
+// ── Streaming с веб-поиском (Responses API) ──────────────────────────────────
+export const webSearchChat = async (messages, modelId, onChunk, options = {}) => {
   try {
+    const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const response = await openai.responses.create({
+    const payload = [
+      { role: 'system', content: SYSTEM.content },
+      ...messages,
+    ];
+
+    const params = {
       model,
+      input: payload,
+      stream: true,
       tools: [{ type: 'web_search_preview' }],
-      input: [
-        { role: 'system', content: SYSTEM.content },
-        ...normalizeHistory(history),
-      ],
-    });
-    return response.output_text ?? '';
+    };
+
+    if (REASONING_MODELS.has(model) && thinkingLevel !== 'none') {
+      params.reasoning = { effort: thinkingLevel };
+    }
+
+    const stream = await openai.responses.create(params);
+    let fullText = '';
+    for await (const event of stream) {
+      const delta = event?.delta?.text ?? event?.delta ?? '';
+      if (typeof delta === 'string' && delta) {
+        fullText += delta;
+        if (onChunk) await onChunk(delta, fullText);
+      }
+    }
+    return fullText;
   } catch (err) {
     wrapError(err);
   }
