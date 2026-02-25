@@ -1,5 +1,7 @@
 import { showDialogs, openDialog, createNewDialog } from './dialogs.js';
-import { deleteConv }    from '../../services/supabase.js';
+import {
+  deleteConv, deleteUserPrompt, setActivePrompt,
+} from '../../services/supabase.js';
 import {
   redis, getActiveConv, setActiveConv,
   getUserModel, setUserModel,
@@ -9,6 +11,7 @@ import {
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
 import { mainMenu }      from '../keyboards/main.js';
 import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
+import { showPromptsList, showDeleteMode, beginPromptCreation } from './prompts.js';
 
 export const setupCallbacks = (bot) => {
 
@@ -16,6 +19,39 @@ export const setupCallbacks = (bot) => {
   bot.action(/^dialogs:(-?\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     await showDialogs(ctx, parseInt(ctx.match[1]));
+  });
+
+  bot.action('prompts', async (ctx) => {
+    await ctx.answerCbQuery();
+    await showPromptsList(ctx);
+  });
+
+  bot.action('prompt_add', async (ctx) => {
+    await ctx.answerCbQuery();
+    await beginPromptCreation(ctx);
+  });
+
+  bot.action('prompt_delete_mode', async (ctx) => {
+    await ctx.answerCbQuery();
+    await showDeleteMode(ctx);
+  });
+
+  bot.action('prompt_reset', async (ctx) => {
+    await ctx.answerCbQuery();
+    await setActivePrompt(ctx.from.id, null);
+    await showPromptsList(ctx);
+  });
+
+  bot.action(/^prompt_select:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('✅ Активирован');
+    await setActivePrompt(ctx.from.id, parseInt(ctx.match[1]));
+    await showPromptsList(ctx);
+  });
+
+  bot.action(/^prompt_del:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('🗑 Удалён');
+    await deleteUserPrompt(ctx.from.id, parseInt(ctx.match[1]));
+    await showDeleteMode(ctx);
   });
 
   bot.action('dialogs_list', async (ctx) => {

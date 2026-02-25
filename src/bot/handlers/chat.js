@@ -13,6 +13,9 @@ import { mainMenu } from '../keyboards/main.js';
 import { config } from '../../config/index.js';
 import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
+import { startThinkingAnimation, stopThinkingAnimation } from '../utils/thinkingAnimation.js';
+import { getActivePrompt } from '../../services/supabase.js';
+import { finishPromptCreation } from './prompts.js';
 
 const CI_MODEL = 'gpt-4o';
 const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$/, '');
@@ -49,41 +52,43 @@ const processUserText = async (ctx, userText, waitMsg) => {
     return;
   }
 
+  const history = await getMessages(convId, config.MAX_HISTORY);
+  const isFirst = history.length === 0;
+  const messageText = userText || '';
+
+  await addMessage(convId, 'user', messageText);
+  if (isFirst) {
+    const t = messageText;
+    await updateConvTitle(convId, t.length > 45 ? `${t.slice(0, 45)}…` : t);
+  }
+
+  const [model, wsEnabled, thinkLevel] = await Promise.all([
+    getUserModel(uid),
+    getWebSearch(uid),
+    getThinkingLevel(uid),
+  ]);
+  const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
+
+  if (!supportsChat(safeModel)) {
+    await ctx.reply(
+      `⛔ Модель \`${safeModel}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
+      { parse_mode: 'Markdown', ...chatKb(convId) }
+    );
+    return;
+  }
+
+  const wsAllowed = wsEnabled && supportsWS(safeModel);
+  const finalKb = buildFinalKb(convId, wsAllowed);
+  const activePrompt = await getActivePrompt(uid);
+  const systemOverride = activePrompt ? { role: 'system', content: activePrompt.content } : null;
+  const thinkingInterval = startThinkingAnimation(ctx, waitMsg.message_id, safeModel);
+
+  let finalText = '';
   try {
-    const history = await getMessages(convId, config.MAX_HISTORY);
-    const isFirst = history.length === 0;
-
-    const messageText = userText || '';
-    await addMessage(convId, 'user', messageText);
-
-    if (isFirst) {
-      const t = messageText;
-      await updateConvTitle(convId, t.length > 45 ? `${t.slice(0, 45)}…` : t);
-    }
-
     const openAiMsgs = [
       ...history.map(m => ({ role: m.role, content: m.content })),
       { role: 'user', content: messageText },
     ];
-
-    const [model, wsEnabled, thinkLevel] = await Promise.all([
-      getUserModel(uid),
-      getWebSearch(uid),
-      getThinkingLevel(uid),
-    ]);
-    const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
-
-    if (!supportsChat(safeModel)) {
-      await ctx.reply(
-        `⛔ Модель \`${safeModel}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
-        { parse_mode: 'Markdown', ...chatKb(convId) }
-      );
-      return;
-    }
-
-    const wsAllowed = wsEnabled && supportsWS(safeModel);
-    const finalKb = buildFinalKb(convId, wsAllowed);
-    let finalText = '';
     const useCodeInterp = needsCodeInterpreter(messageText);
 
     if (useCodeInterp) {
@@ -112,28 +117,28 @@ const processUserText = async (ctx, userText, waitMsg) => {
         openAiMsgs.unshift(fileInstruction);
       }
 
-        console.log(`[CodeInterp] user model: ${safeModel}, using: ${CI_MODEL}`);
-        let attempt = 0;
-        const MAX_RETRIES = 3;
-        let result = null;
-        while (attempt < MAX_RETRIES) {
-          try {
-            result = await codeInterpreterChat(openAiMsgs, CI_MODEL);
-            break;
-          } catch (err) {
-            attempt++;
-            const isRL = err.status === 429
-              || err.message?.includes('rate limit')
-              || err.message?.includes('Too Many Requests');
-            if (!isRL || attempt >= MAX_RETRIES) throw err;
-            const delay = Math.pow(2, attempt) * 1000;
-            const rateMsg = `⏳ Rate limit. Повтор ${attempt}/${MAX_RETRIES}...`;
-            console.warn(`[CodeInterp] rate limit, retry ${attempt}/${MAX_RETRIES} after ${delay}ms`);
-            await safeEdit(ctx, waitMsg.message_id, rateMsg);
-            await new Promise(r => setTimeout(r, delay));
-          }
+      console.log(`[CodeInterp] user model: ${safeModel}, using: ${CI_MODEL}`);
+      let attempt = 0;
+      const MAX_RETRIES = 3;
+      let result = null;
+      while (attempt < MAX_RETRIES) {
+        try {
+          result = await codeInterpreterChat(openAiMsgs, CI_MODEL);
+          break;
+        } catch (err) {
+          attempt++;
+          const isRL = err.status === 429
+            || err.message?.includes('rate limit')
+            || err.message?.includes('Too Many Requests');
+          if (!isRL || attempt >= MAX_RETRIES) throw err;
+          const delay = Math.pow(2, attempt) * 1000;
+          const rateMsg = `⏳ Rate limit. Повтор ${attempt}/${MAX_RETRIES}...`;
+          console.warn(`[CodeInterp] rate limit, retry ${attempt}/${MAX_RETRIES} after ${delay}ms`);
+          await safeEdit(ctx, waitMsg.message_id, rateMsg);
+          await new Promise(r => setTimeout(r, delay));
         }
-        const { text, files } = result || { text: '', files: [] };
+      }
+      const { text, files } = result || { text: '', files: [] };
       finalText = text;
 
       if (files.length === 0) {
@@ -148,7 +153,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
           { ...finalKb }
         );
       } else {
-        await safeSendLong(ctx, finalText, waitMsg.message_id, { ...finalKb });
+        await safeSendLong(ctx, finalText, waitMsg.message_id, finalKb);
         for (const f of files) {
           await ctx.replyWithDocument(
             Input.fromBuffer(f.buffer, f.name),
@@ -169,10 +174,10 @@ const processUserText = async (ctx, userText, waitMsg) => {
       };
 
       const streamResult = wsAllowed
-        ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
-        : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
+        ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel, system: systemOverride })
+        : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel, system: systemOverride });
       finalText = finalText || streamResult;
-      await safeSendLong(ctx, finalText, waitMsg.message_id, { ...finalKb });
+      await safeSendLong(ctx, finalText, waitMsg.message_id, finalKb);
     }
 
     if (convId) {
@@ -196,6 +201,8 @@ const processUserText = async (ctx, userText, waitMsg) => {
     } catch (replyErr) {
       console.error('[Chat] failed to send error message:', replyErr.message);
     }
+  } finally {
+    stopThinkingAnimation(thinkingInterval);
   }
 };
 
@@ -204,6 +211,12 @@ export const setupChat = (bot) => {
     if (ctx.message.text.startsWith('/')) return;
 
     const uid = ctx.from.id;
+    const isAddingPrompt = await redis.get(`prompt_add_state:${uid}`);
+    if (isAddingPrompt) {
+      await redis.del(`prompt_add_state:${uid}`);
+      await finishPromptCreation(ctx);
+      return;
+    }
     if (await isProcessing(uid)) {
       await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
       return;

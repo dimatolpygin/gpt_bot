@@ -48,15 +48,36 @@ const wrapError = (err) => {
   throw err;
 };
 
+const getRetryAfter = (err) => {
+  const header = err.headers?.['retry-after']
+    ?? err.headers?.['Retry-After']
+    ?? err?.response?.headers?.get?.('retry-after')
+    ?? err?.response?.headers?.['retry-after'];
+  const value = parseInt(header, 10);
+  return Number.isNaN(value) ? 10 : value;
+};
+
+const withRetry = async (fn, maxRetries = 3) => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err.status === 429 || err.message?.includes('429');
+      if (!is429 || attempt >= maxRetries - 1) throw err;
+      const retryAfter = Math.min(getRetryAfter(err) * 1000, 60000);
+      console.warn(`[API] 429 rate limit, retry ${attempt + 1}/${maxRetries} after ${retryAfter / 1000}s`);
+      await new Promise(r => setTimeout(r, retryAfter));
+    }
+  }
+};
+
 // ── Streaming через Chat Completions API ─────────────────────────────────────
 export const streamChat = async (messages, modelId, onChunk, options = {}) => {
   try {
-    const { thinkingLevel = 'none' } = options;
+    const { thinkingLevel = 'none', system } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const payload = [
-      { role: 'system', content: SYSTEM.content },
-      ...messages,
-    ];
+    const systemMessage = system || { role: 'system', content: SYSTEM.content };
+    const payload = [systemMessage, ...messages];
 
     const params = {
       model,
@@ -68,7 +89,7 @@ export const streamChat = async (messages, modelId, onChunk, options = {}) => {
       params.reasoning_effort = thinkingLevel;
     }
 
-    const stream = await openai.chat.completions.create(params);
+    const stream = await withRetry(() => openai.chat.completions.create(params));
     let fullText = '';
     for await (const chunk of stream) {
       const delta = chunk.choices?.[0]?.delta?.content || '';
@@ -86,12 +107,10 @@ export const streamChat = async (messages, modelId, onChunk, options = {}) => {
 // ── Streaming с веб-поиском (Responses API) ──────────────────────────────────
 export const webSearchChat = async (messages, modelId, onChunk, options = {}) => {
   try {
-    const { thinkingLevel = 'none' } = options;
+    const { thinkingLevel = 'none', system } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const payload = [
-      { role: 'system', content: SYSTEM.content },
-      ...messages,
-    ];
+    const systemMessage = system || { role: 'system', content: SYSTEM.content };
+    const payload = [systemMessage, ...messages];
 
     const params = {
       model,
@@ -104,7 +123,7 @@ export const webSearchChat = async (messages, modelId, onChunk, options = {}) =>
       params.reasoning = { effort: thinkingLevel };
     }
 
-    const stream = await openai.responses.create(params);
+    const stream = await withRetry(() => openai.responses.create(params));
     let fullText = '';
     for await (const event of stream) {
       const delta = event?.delta?.text ?? event?.delta ?? '';

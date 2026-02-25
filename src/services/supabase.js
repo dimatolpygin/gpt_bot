@@ -95,3 +95,58 @@ export const getMessages = async (convId, limit = 50) => {
   if (error) throw error;
   return data;
 };
+
+export const getUserPrompts = async (userId) => {
+  const { data, error } = await sb
+    .from('user_prompts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+};
+
+export const addUserPrompt = async (userId, name, content) => {
+  const { data, error } = await sb
+    .from('user_prompts')
+    .insert({ user_id: userId, name, content })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+};
+
+export const setActivePrompt = async (userId, promptId) => {
+  const { error: resetErr } = await sb
+    .from('user_prompts')
+    .update({ is_active: false })
+    .eq('user_id', userId);
+  if (resetErr) throw resetErr;
+  if (!promptId) return;
+  const { error } = await sb
+    .from('user_prompts')
+    .update({ is_active: true })
+    .eq('id', promptId)
+    .eq('user_id', userId);
+  if (error) throw error;
+};
+
+export const deleteUserPrompt = async (userId, promptId) => {
+  const { error } = await sb
+    .from('user_prompts')
+    .delete()
+    .eq('id', promptId)
+    .eq('user_id', userId);
+  if (error) throw error;
+};
+
+export const getActivePrompt = async (userId) => {
+  const { data, error } = await sb
+    .from('user_prompts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .single();
+  if (error) return null;
+  return data || null;
+};
