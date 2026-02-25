@@ -1,12 +1,12 @@
 import {
   getActiveConv, isProcessing, setProcessing, redis,
-  getUserModel, getWebSearch, getThinkingLevel, getCodeInterp,
+  getUserModel, getWebSearch, getThinkingLevel,
 } from '../../services/redis.js';
 import {
   addMessage, getMessages,
   updateConvTitle,
 } from '../../services/supabase.js';
-import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat } from '../../services/openai.js';
+import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
 import { supportsChat, supportsVision, supportsWS, VALID_MODELS } from '../keyboards/models.js';
 import { mainMenu } from '../keyboards/main.js';
@@ -25,14 +25,11 @@ const buildFinalKb = (convId, wsEnabled = false) => {
   ]);
 };
 
-// ─── Main handler ─────────────────────────────────────────────────────
-
 export const setupChat = (bot) => {
   bot.on('text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
 
     const uid = ctx.from.id;
-
     const renameConvId = await redis.get(`u:${uid}:rename`);
     if (renameConvId) {
       await redis.del(`u:${uid}:rename`);
@@ -75,11 +72,10 @@ export const setupChat = (bot) => {
         { role: 'user', content: ctx.message.text },
       ];
 
-      const [model, wsEnabled, thinkLevel, useCodeInterp] = await Promise.all([
+      const [model, wsEnabled, thinkLevel] = await Promise.all([
         getUserModel(uid),
         getWebSearch(uid),
         getThinkingLevel(uid),
-        getCodeInterp(uid),
       ]);
       const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
 
@@ -94,9 +90,11 @@ export const setupChat = (bot) => {
       const wsAllowed = wsEnabled && supportsWS(safeModel);
       const finalKb = buildFinalKb(convId, wsAllowed);
       let finalText = '';
+      const userText = ctx.message?.text || '';
+      const useCodeInterp = needsCodeInterpreter(userText);
 
       if (useCodeInterp) {
-        await safeEdit(ctx, waitMsg.message_id, '🐍 Выполняю код...');
+        await safeEdit(ctx, waitMsg.message_id, '🐍 Создаю файл...');
         const { text, files } = await codeInterpreterChat(openAiMsgs, safeModel);
         finalText = text;
         await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
@@ -237,7 +235,6 @@ export const setupChat = (bot) => {
 
     try {
       const model   = await getUserModel(uid);
-      // Проверка: модель поддерживает vision
       if (!supportsVision(model)) {
         await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
         await ctx.reply(

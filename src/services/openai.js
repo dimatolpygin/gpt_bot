@@ -14,6 +14,19 @@ const REASONING_MODELS = new Set([
   'gpt-5.2', 'gpt-5.2-pro',
 ]);
 
+const FILE_KEYWORDS = [
+  'создай файл','сделай файл','сгенерируй файл','создай pdf','сделай pdf',
+  'конвертируй в pdf','создай xlsx','создай csv','создай docx','сохрани в файл',
+  'выгрузи в файл','скачать файл','создай таблицу','построй график','нарисуй график',
+  'generate file','create file','make file','export to','save as pdf','create csv',
+  'create xlsx','create chart','plot','draw chart'
+];
+
+export const needsCodeInterpreter = (text = '') => {
+  const lower = text.toLowerCase();
+  return FILE_KEYWORDS.some(kw => lower.includes(kw));
+};
+
 export const THINKING_EMOJI = {
   none:  '💭',
   low:   '🧠',
