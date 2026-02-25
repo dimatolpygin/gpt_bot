@@ -148,7 +148,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
           { ...finalKb }
         );
       } else {
-        await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
+        await safeSendLong(ctx, finalText, waitMsg.message_id, { ...finalKb });
         for (const f of files) {
           await ctx.replyWithDocument(
             Input.fromBuffer(f.buffer, f.name),
@@ -172,7 +172,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
         ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
         : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
       finalText = finalText || streamResult;
-      await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
+      await safeSendLong(ctx, finalText, waitMsg.message_id, { ...finalKb });
     }
 
     if (convId) {
@@ -304,7 +304,7 @@ export const setupChat = (bot) => {
         ctx,
         result,
         waitMsg.message_id,
-        { parse_mode: 'Markdown', ...finalKb }
+        { ...finalKb }
       );
 
       if (result.length > 4000) {

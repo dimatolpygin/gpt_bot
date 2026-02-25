@@ -1,4 +1,5 @@
 import { Input } from 'telegraf';
+import { mdToHtml } from '../bot/utils/format.js';
 
 const MAX_LEN = 4000;
 
@@ -53,16 +54,19 @@ export async function sendAsFile(ctx, text, filename = 'response.txt', caption =
 
 export async function safeSendLong(ctx, text, processingMsgId = null, extra = {}) {
   if (!text) return null;
+  const htmlText = mdToHtml(text);
+  const sendExtra = { parse_mode: 'HTML', ...extra };
   if (text.length <= MAX_LEN) {
-    if (processingMsgId) return safeEdit(ctx, processingMsgId, text, extra);
-    return safeReply(ctx, text, extra);
+    if (processingMsgId) return safeEdit(ctx, processingMsgId, htmlText, sendExtra);
+    return safeReply(ctx, htmlText, sendExtra);
   }
 
   const preview = `${text.slice(0, MAX_LEN)}\n\n_(продолжение в файле ниже)_`;
+  const htmlPreview = mdToHtml(preview);
   if (processingMsgId) {
-    await safeEdit(ctx, processingMsgId, preview, extra);
+    await safeEdit(ctx, processingMsgId, htmlPreview, sendExtra);
   } else {
-    await safeReply(ctx, preview, extra);
+    await safeReply(ctx, htmlPreview, sendExtra);
   }
   await sendAsFile(ctx, text, 'gpt_response.txt', 'Полный ответ');
   return null;
