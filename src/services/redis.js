@@ -50,3 +50,17 @@ export const toggleWebSearch = async (uid) => {
   await redis.set(`u:${uid}:websearch`, current ? '0' : '1', 'EX', 86400);
   return !current;
 };
+
+export const getThinkingLevel = async (uid) => {
+  const val = await redis.get(`think:${uid}`);
+  return val || 'none';
+};
+
+export const setThinkingLevel = (uid, level) =>
+  redis.set(`think:${uid}`, level, 'EX', 60 * 60 * 24 * 30);
+
+export const nextThinkingLevel = (current) => {
+  const levels = ['none', 'low', 'medium', 'high', 'xhigh'];
+  const idx = levels.indexOf(current);
+  return levels[(idx + 1) % levels.length];
+};

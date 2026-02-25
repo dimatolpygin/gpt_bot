@@ -1,12 +1,12 @@
 import {
   getActiveConv, isProcessing, setProcessing, redis,
-  getUserModel, getWebSearch,
+  getUserModel, getWebSearch, getThinkingLevel,
 } from '../../services/redis.js';
 import {
   addMessage, getMessages,
   updateConvTitle,
 } from '../../services/supabase.js';
-import { streamChat, webSearchChat, analyzePhoto } from '../../services/openai.js';
+import { streamChat, webSearchChat, analyzePhoto, analyzeFile } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
 import { supportsChat, supportsVision, supportsWS } from '../keyboards/models.js';
 import { mainMenu } from '../keyboards/main.js';
@@ -84,7 +84,7 @@ export const setupChat = (bot) => {
 
     const convId = await getActiveConv(uid);
     if (!convId) {
-      await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', mainMenu());
+      await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', await mainMenu(uid));
       return;
     }
 
@@ -111,7 +111,11 @@ export const setupChat = (bot) => {
         { role: 'user', content: ctx.message.text },
       ];
 
-      const model = await getUserModel(uid);
+      const [model, wsEnabled, thinkLevel] = await Promise.all([
+        getUserModel(uid),
+        getWebSearch(uid),
+        getThinkingLevel(uid),
+      ]);
       if (!supportsChat(model)) {
         await ctx.reply(
           `⛔ Модель \`${model}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
@@ -120,7 +124,6 @@ export const setupChat = (bot) => {
         return;
       }
 
-      const wsEnabled = await getWebSearch(uid);
       const wsAllowed = wsEnabled && supportsWS(model);
 
       if (wsAllowed) {
@@ -170,7 +173,8 @@ export const setupChat = (bot) => {
             await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, preview + ' ▌');
           }
         },
-        async (full) => { finalText = full; }
+        async (full) => { finalText = full; },
+        { thinkingLevel: thinkLevel }
       );
 
       // Persist assistant reply
@@ -211,11 +215,81 @@ export const setupChat = (bot) => {
     }
   });
 
+  bot.on('document', async (ctx) => {
+    const uid = ctx.from.id;
+    const convId = await getActiveConv(uid);
+    if (!convId) {
+      await ctx.reply('❌ Нет активного диалога.', await mainMenu(uid));
+      return;
+    }
+
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
+
+    await setProcessing(uid, true);
+    const waitMsg = await ctx.reply('📄 Анализирую файл…');
+
+    try {
+      const doc = ctx.message.document;
+      const MAX_FILE_SIZE = 20 * 1024 * 1024;
+      if (doc.file_size > MAX_FILE_SIZE) {
+        await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, '❌ Файл слишком большой. Максимум 20MB.');
+        return;
+      }
+
+      const ALLOWED_EXTS = ['pdf','txt','md','csv','json','js','ts','py','docx'];
+      const ext = doc.file_name?.split('.').pop()?.toLowerCase();
+      if (!ext || !ALLOWED_EXTS.includes(ext)) {
+        await safeEdit(
+          ctx.telegram, ctx.chat.id, waitMsg.message_id,
+          `❌ Формат .${ext || '??'} не поддерживается. Допустимо: ${ALLOWED_EXTS.join(', ')}`
+        );
+        return;
+      }
+
+      const fileLink = await ctx.telegram.getFileLink(doc.file_id);
+      const response = await fetch(fileLink.href);
+      const fileBuffer = Buffer.from(await response.arrayBuffer());
+      const model = await getUserModel(uid);
+      const caption = ctx.message.caption || '';
+      const result = await analyzeFile(fileBuffer, doc.file_name, caption, model || 'gpt-4o');
+
+      await addMessage(convId, 'user', `[Файл: ${doc.file_name}] ${caption}`);
+      await addMessage(convId, 'assistant', result, model);
+
+      const parts = splitText(result);
+      const finalKb = buildFinalKb(convId);
+
+      if (parts.length === 1) {
+        await safeEdit(ctx.telegram, ctx.chat.id, waitMsg.message_id, result, finalKb);
+      } else {
+        await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+        for (let i = 0; i < parts.length; i++) {
+          const isLast = i === parts.length - 1;
+          const extra = isLast
+            ? { parse_mode: 'Markdown', ...finalKb }
+            : { parse_mode: 'Markdown' };
+          await ctx.reply(parts[i], extra).catch(() => ctx.reply(parts[i], extra));
+        }
+      }
+    } catch (err) {
+      console.error('[File] analysis error:', err.message);
+      await safeEdit(
+        ctx.telegram, ctx.chat.id, waitMsg.message_id,
+        `❌ Ошибка при анализе файла: ${err.message}`
+      );
+    } finally {
+      await setProcessing(uid, false);
+    }
+  });
+
   bot.on('photo', async (ctx) => {
     const uid    = ctx.from.id;
     const convId = await getActiveConv(uid);
     if (!convId) {
-      await ctx.reply('❌ Нет активного диалога.', mainMenu());
+      await ctx.reply('❌ Нет активного диалога.', await mainMenu(uid));
       return;
     }
 

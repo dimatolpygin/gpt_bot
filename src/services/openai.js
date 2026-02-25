@@ -1,12 +1,22 @@
 import OpenAI from 'openai';
-import { config }          from '../config/index.js';
-import { needsMaxCompTok } from '../bot/keyboards/models.js';
+import { config } from '../config/index.js';
+import { File } from 'node:buffer';
 
 const openai = new OpenAI({ apiKey: config.OPENAI_API_KEY });
 
 const SYSTEM = {
   role: 'system',
   content: 'Ты умный и полезный AI-ассистент. Отвечай на языке пользователя. Будь чётким, структурированным и содержательным.',
+};
+
+const REASONING_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex'];
+
+export const THINKING_EMOJI = {
+  none:  '💭',
+  low:   '🧠',
+  medium:'🧠🧠',
+  high:  '🧠🧠🧠',
+  xhigh: '🧠⚡',
 };
 
 // Обёртка ошибок OpenAI
@@ -18,70 +28,125 @@ const wrapError = (err) => {
   throw err;
 };
 
-// Токен-параметр по модели
-const tokParam = (modelId) =>
-  needsMaxCompTok(modelId)
-    ? { max_completion_tokens: 4096 }
-    : { max_tokens: 4096 };
+const normalizeHistory = (history) => history.map(m => ({ role: m.role, content: m.content }));
 
-// ── Обычный стриминг (chat completions) ──────────────────────────────
-
-export const streamChat = async (history, modelId, onChunk, onDone) => {
+// ── Streaming через Responses API ──────────────────────────────────────
+export const streamChat = async (messages, modelId, onChunk, onDone, options = {}) => {
   try {
-    const model  = modelId || config.OPENAI_MODEL;
-    const stream = await openai.chat.completions.create({
+    const { thinkingLevel = 'none', webSearch = false } = options;
+    const model = modelId || config.OPENAI_MODEL;
+    const params = {
       model,
-      messages: [SYSTEM, ...history],
+      input: [
+        { role: 'system', content: SYSTEM.content },
+        ...normalizeHistory(messages),
+      ],
       stream: true,
-      ...tokParam(model),
-    });
+    };
 
-    let full = '';
+    if (REASONING_MODELS.includes(model) && thinkingLevel !== 'none') {
+      params.reasoning = { effort: thinkingLevel };
+    }
+
+    if (webSearch) {
+      params.tools = [{ type: 'web_search_preview' }];
+    }
+
+    const stream = await openai.responses.create(params);
+    let fullText = '';
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content ?? '';
+      const delta = chunk.delta?.text || '';
       if (delta) {
-        full += delta;
-        await onChunk(full);
+        fullText += delta;
+        if (onChunk) await onChunk(fullText);
       }
     }
-    await onDone(full);
-    return full;
-  } catch (err) { wrapError(err); }
+    if (onDone) await onDone(fullText);
+    return fullText;
+  } catch (err) {
+    wrapError(err);
+  }
 };
 
 // ── Web Search через Responses API ───────────────────────────────────
-
 export const webSearchChat = async (history, modelId) => {
   try {
-    const model    = modelId || config.OPENAI_MODEL;
+    const model = modelId || config.OPENAI_MODEL;
     const response = await openai.responses.create({
       model,
       tools: [{ type: 'web_search_preview' }],
       input: [
         { role: 'system', content: SYSTEM.content },
-        ...history.map(m => ({ role: m.role, content: m.content })),
+        ...normalizeHistory(history),
       ],
     });
     return response.output_text ?? '';
-  } catch (err) { wrapError(err); }
+  } catch (err) {
+    wrapError(err);
+  }
 };
 
 // ── Анализ фото (vision) ──────────────────────────────────────────────
-
 export const analyzePhoto = async (imageUrl, caption, modelId) => {
   try {
-    const model    = modelId || 'gpt-4o';
+    const model = modelId || 'gpt-4o';
     const response = await openai.chat.completions.create({
       model,
       messages: [{
         role: 'user',
         content: [
           { type: 'image_url', image_url: { url: imageUrl } },
-          { type: 'text',      text: caption || 'Подробно опиши что на этом изображении.' },
+          { type: 'text', text: caption || 'Подробно опиши что на этом изображении.' },
         ],
       }],
-      ...tokParam(model),
     });
     return response.choices[0]?.message?.content ?? '';
-  } catch (err) { wrapError(err); }
+  } catch (err) {
+    wrapError(err);
+  }
+};
+
+const getMimeType = (fileName) => {
+  const ext = fileName?.split('.').pop()?.toLowerCase();
+  const types = {
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    md: 'text/markdown',
+    csv: 'text/csv',
+    json: 'application/json',
+    js: 'text/javascript',
+    ts: 'text/typescript',
+    py: 'text/x-python',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  };
+  return types[ext] || 'application/octet-stream';
+};
+
+export const analyzeFile = async (fileBuffer, fileName, caption, modelId) => {
+  let uploaded;
+  try {
+    const file = new File([fileBuffer], fileName, { type: getMimeType(fileName) });
+    uploaded = await openai.files.create({ file, purpose: 'user_data' });
+
+    const response = await openai.responses.create({
+      model: modelId || 'gpt-4o',
+      input: [
+        {
+          role: 'user',
+          content: [
+            { type: 'input_file', file_id: uploaded.id },
+            { type: 'input_text', text: caption || 'Проанализируй этот файл и опиши его содержимое.' },
+          ],
+        },
+      ],
+    });
+
+    return response.output_text ?? '';
+  } catch (err) {
+    wrapError(err);
+  } finally {
+    if (uploaded?.id) {
+      await openai.files.del(uploaded.id).catch(() => {});
+    }
+  }
 };

@@ -3,11 +3,12 @@ import { deleteConv }    from '../../services/supabase.js';
 import {
   redis, getActiveConv, setActiveConv,
   getUserModel, setUserModel,
-  toggleWebSearch,
+  toggleWebSearch, getThinkingLevel,
+  setThinkingLevel, nextThinkingLevel,
 } from '../../services/redis.js';
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
 import { mainMenu }      from '../keyboards/main.js';
-import { modelsKb, MODELS, supportsWS } from '../keyboards/models.js';
+import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
 
 export const setupCallbacks = (bot) => {
 
@@ -65,9 +66,34 @@ export const setupCallbacks = (bot) => {
   // ── Main menu ─────────────────────────────────────────────────────
   bot.action('main_menu', async (ctx) => {
     await ctx.answerCbQuery();
+    const menu = await mainMenu(ctx.from.id);
     await ctx.editMessageText('🏠 *Главное меню*', {
-      parse_mode: 'Markdown', ...mainMenu(),
+      parse_mode: 'Markdown', ...menu,
     }).catch(() => {});
+  });
+
+  bot.action('toggle_thinking', async (ctx) => {
+    await ctx.answerCbQuery();
+    const userId = ctx.from.id;
+    const current = await getThinkingLevel(userId);
+    const next = nextThinkingLevel(current);
+    const model = await getUserModel(userId);
+    if (!supportsReasoning(model)) {
+      await ctx.answerCbQuery('⚠️ Текущая модель не поддерживает режим мышления', { show_alert: true });
+      return;
+    }
+    await setThinkingLevel(userId, next);
+
+    const menu = await mainMenu(userId);
+    await ctx.editMessageText(
+      `🧠 Режим мышления: ${next}\n\n` +
+      `none — без размышлений (быстро)\n` +
+      `low — лёгкие рассуждения\n` +
+      `medium — стандарт\n` +
+      `high — глубокий анализ\n` +
+      `xhigh — максимум (медленно, дорого)`,
+      { parse_mode: 'Markdown', ...menu }
+    ).catch(() => {});
   });
 
   // ── Delete — ask confirmation ─────────────────────────────────────

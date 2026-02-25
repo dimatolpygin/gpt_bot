@@ -24,6 +24,7 @@ function buildAgent() {
 
 const bot = new Telegraf(config.BOT_TOKEN, {
   telegram: { agent: buildAgent() },
+  handlerTimeout: 10 * 60 * 1000,
 });
 
 // ── Middlewares ───────────────────────────────────────────────────────
@@ -39,6 +40,10 @@ setupHandlers(bot);
 
 // ── Global error handler ──────────────────────────────────────────────
 bot.catch((err, ctx) => {
+  if (err?.name === 'TimeoutError' || err?.message?.includes('timed out')) {
+    console.warn(`[Bot] handler timeout (${ctx.updateType})`);
+    return;
+  }
   console.error(`[Bot] unhandled error (${ctx.updateType}):`, err);
   ctx.reply('❌ Внутренняя ошибка. Попробуйте позже.').catch(() => {});
 });
