@@ -226,7 +226,7 @@ export const codeInterpreterChat = async (messages, modelId) => {
           }
 
           try {
-            const fileContent = await openai.containers.files.content(containerId, fileInfo.id);
+            const fileContent = await openai.containers.files.retrieveContent(containerId, fileInfo.id);
 
             const buffer = Buffer.from(await fileContent.arrayBuffer());
             if (buffer.length === 0) {
