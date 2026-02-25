@@ -88,7 +88,7 @@ export const addMessage = async (convId, role, content, model = null) => {
 export const getMessages = async (convId, limit = 50) => {
   const { data, error } = await sb
     .from('bot_messages')
-    .select('role, content')
+    .select('role, content, model, created_at')
     .eq('conversation_id', convId)
     .order('created_at', { ascending: true })
     .limit(limit);

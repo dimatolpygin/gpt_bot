@@ -132,11 +132,50 @@
   const convId  = params.get('convId');
   const API_URL = params.get('api') || '';
 
-  const fmt = (iso) => {
-    const d = new Date(iso);
-    return d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit',
-                                        hour:'2-digit', minute:'2-digit' });
+  const normalizeTimestamp = (raw) => {
+    if (!raw) return null;
+    let normalized = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(normalized)) {
+      normalized = normalized.replace(' ', 'T');
+    }
+    if (!normalized.endsWith('Z') && !/[+\-]\d{2}:?\d{2}$/.test(normalized)) {
+      normalized += 'Z';
+    }
+    return normalized;
   };
+
+  const parseDate = (raw) => {
+    const normalized = normalizeTimestamp(raw);
+    if (!normalized) return null;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  function formatDate(raw) {
+    const parsed = parseDate(raw);
+    if (!parsed) return '';
+    return parsed.toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function formatDateShort(raw) {
+    const parsed = parseDate(raw);
+    if (!parsed) return '';
+    const now = new Date();
+    if (parsed.toDateString() === now.toDateString()) {
+      return parsed.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    }
+    return parsed.toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+    });
+  }
 
   async function load() {
     const container = document.getElementById('messages');
@@ -171,7 +210,7 @@
         meta.className = 'meta';
 
         const role = m.role === 'user' ? '👤 Вы' : '🤖 GPT';
-        let inner = `<span>${role}</span><span>${fmt(m.created_at)}</span>`;
+        let inner = `<span>${role}</span><span>${formatDate(m.created_at)}</span>`;
         if (m.role === 'assistant' && m.model) {
           inner += `<span class="model-badge">${m.model}</span>`;
         }
