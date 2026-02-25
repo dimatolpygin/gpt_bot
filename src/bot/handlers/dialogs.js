@@ -9,6 +9,7 @@ import {
 import { dialogsKb, chatKb } from '../keyboards/dialogs.js';
 import { mainMenu } from '../keyboards/main.js';
 import { config } from '../../config/index.js';
+import { safeEdit, safeReply } from '../../utils/telegram.js';
 
 // ─── Show paginated list ──────────────────────────────────────────────
 
@@ -23,10 +24,13 @@ export const showDialogs = async (ctx, page) => {
     : `📋 *Диалоги* · ${total} шт · стр. ${page + 1}/${totalPages}`;
 
   const kb = { parse_mode: 'Markdown', ...dialogsKb(conversations, page, total) };
-
   try {
-    if (ctx.callbackQuery) await ctx.editMessageText(text, kb);
-    else                   await ctx.reply(text, kb);
+    if (ctx.callbackQuery) {
+      const messageId = ctx.callbackQuery.message?.message_id;
+      if (messageId) await safeEdit(ctx, messageId, text, kb);
+    } else {
+      await safeReply(ctx, text, kb);
+    }
   } catch (e) {
     if (!e.description?.includes('not modified')) throw e;
   }
@@ -77,8 +81,13 @@ export const openDialog = async (ctx, convId) => {
     }
   }
 
+  const messageId = ctx.callbackQuery?.message?.message_id;
   try {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...chatKb(convId) });
+    if (messageId) {
+      await safeEdit(ctx, messageId, text, { reply_markup: chatKb(convId) });
+    } else {
+      await safeReply(ctx, text, { reply_markup: chatKb(convId) });
+    }
   } catch (e) {
     if (!e.description?.includes('not modified')) throw e;
   }

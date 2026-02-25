@@ -1,3 +1,5 @@
+import { Input } from 'telegraf';
+
 const MAX_LEN = 4000;
 
 export async function safeEdit(ctx, messageId, text, extra = {}) {
@@ -31,24 +33,34 @@ export async function safeReply(ctx, text, extra = {}) {
   }
 }
 
+export async function sendAsFile(ctx, text, filename = 'response.txt', caption = 'Полный ответ') {
+  try {
+    const buffer = Buffer.from(text, 'utf-8');
+    await ctx.replyWithDocument(
+      Input.fromBuffer(buffer, filename),
+      { caption }
+    );
+  } catch (err) {
+    console.error('[sendAsFile] error:', err.message);
+    await safeReply(ctx, text.slice(0, MAX_LEN));
+  }
+}
+
 export async function safeSendLong(ctx, text, processingMsgId = null, extra = {}) {
   if (!text) return null;
-  if (processingMsgId && text.length <= MAX_LEN) {
-    return safeEdit(ctx, processingMsgId, text, extra);
+  if (text.length <= MAX_LEN) {
+    if (processingMsgId) return safeEdit(ctx, processingMsgId, text, extra);
+    return safeReply(ctx, text, extra);
   }
 
+  const preview = `${text.slice(0, MAX_LEN)}\n\n_(продолжение в файле ниже)_`;
   if (processingMsgId) {
-    await ctx.telegram.deleteMessage(ctx.chat.id, processingMsgId).catch(() => {});
+    await safeEdit(ctx, processingMsgId, preview, extra);
+  } else {
+    await safeReply(ctx, preview, extra);
   }
-
-  const chunks = splitSmart(text, MAX_LEN);
-  let lastMessage = null;
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const chunkExtra = i === chunks.length - 1 ? extra : {};
-    lastMessage = await safeReply(ctx, chunk, chunkExtra);
-  }
-  return lastMessage;
+  await sendAsFile(ctx, text, 'gpt_response.txt', 'Полный ответ');
+  return null;
 }
 
 const isParseError = (err) =>
