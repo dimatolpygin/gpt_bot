@@ -226,7 +226,10 @@ export const codeInterpreterChat = async (messages, modelId) => {
           }
 
           try {
-            const fileContent = await openai.containers.files.retrieveContent(containerId, fileInfo.id);
+            const fileContent = await openai.containers.files.content.retrieve(
+              containerId,
+              fileInfo.id
+            );
 
             const buffer = Buffer.from(await fileContent.arrayBuffer());
             if (buffer.length === 0) {
@@ -251,3 +254,21 @@ export const codeInterpreterChat = async (messages, modelId) => {
     wrapError(err);
   }
 };
+
+export const transcribeVoice = async (audioBuffer, options = {}) => {
+  const {
+    fileName = 'voice_message.ogg',
+    contentType = 'audio/ogg',
+    language = 'auto',
+  } = options;
+
+  const transcription = await openai.audio.transcriptions.create({
+    file: new File([audioBuffer], fileName, { type: contentType }),
+    model: 'whisper-1',
+    language,
+  });
+
+  return transcription?.text ?? '';
+};
+
+export { openai };

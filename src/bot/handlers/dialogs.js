@@ -8,8 +8,13 @@ import {
 } from '../../services/redis.js';
 import { dialogsKb, chatKb } from '../keyboards/dialogs.js';
 import { mainMenu } from '../keyboards/main.js';
+import { Markup } from 'telegraf';
 import { config } from '../../config/index.js';
 import { safeEdit, safeReply } from '../../utils/telegram.js';
+
+const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$/, '');
+const buildWebAppUrl = (convId) =>
+  `${WEBAPP_BASE}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(WEBAPP_BASE)}`;
 
 // ─── Show paginated list ──────────────────────────────────────────────
 
@@ -64,20 +69,12 @@ export const openDialog = async (ctx, convId) => {
     }
 
     if (allMessages.length > 10 && ctx.callbackQuery) {
-      const fullHistory = allMessages.map((m, i) => {
-        const role = m.role === 'user' ? 'ПОЛЬЗОВАТЕЛЬ' : 'АССИСТЕНТ';
-        return `[${i + 1}] ${role}:\n${m.content}`;
-      }).join('\n\n' + '='.repeat(50) + '\n\n');
-
-      const fileContent = `Диалог: ${conv.title}\nВсего сообщений: ${allMessages.length}\n${'='.repeat(50)}\n\n${fullHistory}`;
-      const fileBuffer = Buffer.from(fileContent, 'utf-8');
-
-      await ctx.telegram.sendDocument(ctx.chat.id, {
-        source: fileBuffer,
-        filename: `history_${convId}.txt`,
-      }, {
-        caption: `📄 Полная история диалога (${allMessages.length} сообщений)`,
-      });
+      const webappUrl = buildWebAppUrl(convId);
+      const kb = Markup.inlineKeyboard([
+        [Markup.button.webApp('🌐 Открыть WebApp', webappUrl)],
+        [Markup.button.callback('◀️ Назад', 'dialogs_list')],
+      ]);
+      await ctx.reply('📖 История диалога:', kb);
     }
   }
 

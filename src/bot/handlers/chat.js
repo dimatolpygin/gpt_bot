@@ -6,7 +6,7 @@ import {
   addMessage, getMessages,
   updateConvTitle,
 } from '../../services/supabase.js';
-import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter } from '../../services/openai.js';
+import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter, transcribeVoice } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
 import { supportsChat, supportsVision, supportsWS, VALID_MODELS } from '../keyboards/models.js';
 import { mainMenu } from '../keyboards/main.js';
@@ -14,113 +14,140 @@ import { config } from '../../config/index.js';
 import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 
+const CI_MODEL = 'gpt-4o';
+const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$, '');
+const buildWebAppUrl = (convId) =>
+  `${WEBAPP_BASE}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(WEBAPP_BASE)}`;
+
 const buildFinalKb = (convId, wsEnabled = false) => {
   const baseKb = chatKb(convId, wsEnabled);
   const baseInline = baseKb.reply_markup?.inline_keyboard || [];
-  const webappBase = config.WEBAPP_URL.replace(/\/+$/, '');
-  const webappUrl = `${webappBase}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(webappBase)}`;
+  const webappUrl = buildWebAppUrl(convId);
   return Markup.inlineKeyboard([
     [Markup.button.webApp('💬 Просмотреть весь диалог', webappUrl)],
     ...baseInline,
   ]);
 };
 
-export const setupChat = (bot) => {
-  bot.on('text', async (ctx) => {
-    if (ctx.message.text.startsWith('/')) return;
+const processUserText = async (ctx, userText, waitMsg) => {
+  const uid = ctx.from.id;
+  const renameConvId = await redis.get(`u:${uid}:rename`);
+  if (renameConvId) {
+    await redis.del(`u:${uid}:rename`);
+    const newTitle = (userText || '').slice(0, 60);
+    await updateConvTitle(parseInt(renameConvId), newTitle);
+    await ctx.reply(
+      `✅ Переименовано: *${newTitle}*`,
+      { parse_mode: 'Markdown', ...chatKb(parseInt(renameConvId)) }
+    );
+    return;
+  }
 
-    const uid = ctx.from.id;
-    const renameConvId = await redis.get(`u:${uid}:rename`);
-    if (renameConvId) {
-      await redis.del(`u:${uid}:rename`);
-      const newTitle = ctx.message.text.slice(0, 60);
-      await updateConvTitle(parseInt(renameConvId), newTitle);
+  const convId = await getActiveConv(uid);
+  if (!convId) {
+    await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', await mainMenu(uid));
+    return;
+  }
+
+  try {
+    const history = await getMessages(convId, config.MAX_HISTORY);
+    const isFirst = history.length === 0;
+
+    const messageText = userText || '';
+    await addMessage(convId, 'user', messageText);
+
+    if (isFirst) {
+      const t = messageText;
+      await updateConvTitle(convId, t.length > 45 ? `${t.slice(0, 45)}…` : t);
+    }
+
+    const openAiMsgs = [
+      ...history.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user', content: messageText },
+    ];
+
+    const [model, wsEnabled, thinkLevel] = await Promise.all([
+      getUserModel(uid),
+      getWebSearch(uid),
+      getThinkingLevel(uid),
+    ]);
+    const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
+
+    if (!supportsChat(safeModel)) {
       await ctx.reply(
-        `✅ Переименовано: *${newTitle}*`,
-        { parse_mode: 'Markdown', ...chatKb(parseInt(renameConvId)) }
+        `⛔ Модель \`${safeModel}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
+        { parse_mode: 'Markdown', ...chatKb(convId) }
       );
       return;
     }
 
-    if (await isProcessing(uid)) {
-      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
-      return;
-    }
+    const wsAllowed = wsEnabled && supportsWS(safeModel);
+    const finalKb = buildFinalKb(convId, wsAllowed);
+    let finalText = '';
+    const useCodeInterp = needsCodeInterpreter(messageText);
 
-    const convId = await getActiveConv(uid);
-    if (!convId) {
-      await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', await mainMenu(uid));
-      return;
-    }
-
-    await setProcessing(uid, true);
-    const waitMsg = await ctx.reply('🤔 Думаю…');
-
-    try {
-      const history = await getMessages(convId, config.MAX_HISTORY);
-      const isFirst = history.length === 0;
-
-      await addMessage(convId, 'user', ctx.message.text);
-
-      if (isFirst) {
-        const t = ctx.message.text;
-        await updateConvTitle(convId, t.length > 45 ? t.slice(0, 45) + '…' : t);
+    if (useCodeInterp) {
+      await safeEdit(ctx, waitMsg.message_id, '🐍 Создаю файл...');
+      const fileInstruction = {
+        role: 'developer',
+        content:
+          'The user wants you to CREATE and SEND an actual file. ' +
+          'You MUST use the code_interpreter tool to generate it. ' +
+          'CRITICAL RULES:\n' +
+          '1. Save ALL output to /mnt/data/ directory.\n' +
+          '2. Use ONLY ASCII letters, digits, underscores, or hyphens in filenames.\n' +
+          '3. NO Cyrillic, Chinese, Arabic, emoji, or spaces.\n' +
+          '4. Good examples: essay_monster.pdf, data_report.xlsx, chart_2024.png\n' +
+          '5. Bad examples: эссе.pdf, 文件.xlsx, my file.docx\n' +
+          'Code examples:\n' +
+          '- PDF: pdf.output("/mnt/data/essay_monster.pdf")\n' +
+          '- Excel: df.to_excel("/mnt/data/report.xlsx", index=False)\n' +
+          '- PNG: plt.savefig("/mnt/data/chart.png")\n' +
+          'Do NOT say you cannot create files. Just write and execute Python code.',
+      };
+      const systemIdx = openAiMsgs.findIndex(m => m.role === 'system' || m.role === 'developer');
+      if (systemIdx >= 0) {
+        openAiMsgs.splice(systemIdx + 1, 0, fileInstruction);
+      } else {
+        openAiMsgs.unshift(fileInstruction);
       }
 
-      const openAiMsgs = [
-        ...history.map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: ctx.message.text },
-      ];
-
-      const [model, wsEnabled, thinkLevel] = await Promise.all([
-        getUserModel(uid),
-        getWebSearch(uid),
-        getThinkingLevel(uid),
-      ]);
-      const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
-
-      if (!supportsChat(safeModel)) {
-        await ctx.reply(
-          `⛔ Модель \`${safeModel}\` не поддерживает диалог.\nВыберите другую в 🧠 Модель GPT.`,
-          { parse_mode: 'Markdown', ...chatKb(convId) }
-        );
-        return;
-      }
-
-      const wsAllowed = wsEnabled && supportsWS(safeModel);
-      const finalKb = buildFinalKb(convId, wsAllowed);
-      let finalText = '';
-      const userText = ctx.message?.text || '';
-      const useCodeInterp = needsCodeInterpreter(userText);
-
-      if (useCodeInterp) {
-        await safeEdit(ctx, waitMsg.message_id, '🐍 Создаю файл...');
-        const fileInstruction = {
-          role: 'developer',
-          content:
-            'The user wants you to CREATE and SEND an actual file. ' +
-            'You MUST use the code_interpreter tool to generate it. ' +
-            'CRITICAL RULES:\n' +
-            '1. Save ALL output to /mnt/data/ directory.\n' +
-            '2. Use ONLY ASCII letters, digits, underscores, or hyphens in filenames.\n' +
-            '3. NO Cyrillic, Chinese, Arabic, emoji, or spaces.\n' +
-            '4. Good examples: essay_monster.pdf, data_report.xlsx, chart_2024.png\n' +
-            '5. Bad examples: эссе.pdf, 文件.xlsx, my file.docx\n' +
-            'Code examples:\n' +
-            '- PDF: pdf.output("/mnt/data/essay_monster.pdf")\n' +
-            '- Excel: df.to_excel("/mnt/data/report.xlsx", index=False)\n' +
-            '- PNG: plt.savefig("/mnt/data/chart.png")\n' +
-            'Do NOT say you cannot create files. Just write and execute Python code.',
-        };
-        const systemIdx = openAiMsgs.findIndex(m => m.role === 'system' || m.role === 'developer');
-        if (systemIdx >= 0) {
-          openAiMsgs.splice(systemIdx + 1, 0, fileInstruction);
-        } else {
-          openAiMsgs.unshift(fileInstruction);
+        console.log(`[CodeInterp] user model: ${safeModel}, using: ${CI_MODEL}`);
+        let attempt = 0;
+        const MAX_RETRIES = 3;
+        let result = null;
+        while (attempt < MAX_RETRIES) {
+          try {
+            result = await codeInterpreterChat(openAiMsgs, CI_MODEL);
+            break;
+          } catch (err) {
+            attempt++;
+            const isRL = err.status === 429
+              || err.message?.includes('rate limit')
+              || err.message?.includes('Too Many Requests');
+            if (!isRL || attempt >= MAX_RETRIES) throw err;
+            const delay = Math.pow(2, attempt) * 1000;
+            const rateMsg = `⏳ Rate limit. Повтор ${attempt}/${MAX_RETRIES}...`;
+            console.warn(`[CodeInterp] rate limit, retry ${attempt}/${MAX_RETRIES} after ${delay}ms`);
+            await safeEdit(ctx, waitMsg.message_id, rateMsg);
+            await new Promise(r => setTimeout(r, delay));
+          }
         }
+        const { text, files } = result || { text: '', files: [] };
+      finalText = text;
 
-        const { text, files } = await codeInterpreterChat(openAiMsgs, safeModel);
-        finalText = text;
+      if (files.length === 0) {
+        console.warn('[CodeInterp] model responded with text only, no files generated');
+        const preview = finalText
+          ? (finalText.length > 3500 ? finalText.slice(0, 3500) : finalText)
+          : 'Ответ пустой.';
+        await safeEdit(
+          ctx,
+          waitMsg.message_id,
+          `⚠️ Файл не был создан (возможно API вернул bytes: null).\n\n${preview}`,
+          { ...finalKb }
+        );
+      } else {
         await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
         for (const f of files) {
           await ctx.replyWithDocument(
@@ -128,51 +155,102 @@ export const setupChat = (bot) => {
             { caption: `📎 ${f.name}` }
           ).catch(() => {});
         }
-        if (files.length === 0 && finalText.length > 0) {
-          console.warn('[CodeInterp] model responded with text only, no files generated');
+      }
+    } else {
+      let lastEdit = 0;
+      const handleChunk = async (_delta, full) => {
+        finalText = full;
+        const now = Date.now();
+        if (now - lastEdit > config.STREAM_THROTTLE) {
+          lastEdit = now;
+          const preview = full.length > 4000 ? '…' + full.slice(-4000) : full;
+          await safeEdit(ctx, waitMsg.message_id, preview + ' ▌');
         }
+      };
+
+      const streamResult = wsAllowed
+        ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
+        : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
+      finalText = finalText || streamResult;
+      await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
+    }
+
+    if (convId) {
+      await addMessage(convId, 'assistant', finalText, safeModel);
+    }
+  } catch (err) {
+    console.error('[Chat] error:', err.message);
+    const isModelError = err?.message?.includes('model')
+      || err?.message?.includes('недоступна')
+      || err?.message?.includes('does not exist')
+      || err?.status === 404;
+    const errorText = isModelError
+      ? `❌ Модель недоступна в вашем аккаунте.\n\nПереключитесь на *gpt-4o* через меню 👉 Модель.`
+      : `❌ Ошибка: ${err.message}`;
+    try {
+      if (waitMsg?.message_id) {
+        await safeEdit(ctx, waitMsg.message_id, errorText);
       } else {
-        let lastEdit = 0;
-        const handleChunk = async (_delta, full) => {
-          finalText = full;
-          const now = Date.now();
-          if (now - lastEdit > config.STREAM_THROTTLE) {
-            lastEdit = now;
-            const preview = full.length > 4000 ? '…' + full.slice(-4000) : full;
-            await safeEdit(ctx, waitMsg.message_id, preview + ' ▌');
-          }
-        };
+        await safeReply(ctx, errorText);
+      }
+    } catch (replyErr) {
+      console.error('[Chat] failed to send error message:', replyErr.message);
+    }
+  }
+};
 
-        const streamResult = wsAllowed
-          ? await webSearchChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel })
-          : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
-        finalText = finalText || streamResult;
-        await safeSendLong(ctx, finalText, waitMsg.message_id, { parse_mode: 'Markdown', ...finalKb });
-      }
+export const setupChat = (bot) => {
+  bot.on('text', async (ctx) => {
+    if (ctx.message.text.startsWith('/')) return;
 
-      if (convId) {
-        await addMessage(convId, 'assistant', finalText, safeModel);
-      }
-    } catch (err) {
-      console.error('[Chat] error:', err.message);
-      const isModelError = err?.message?.includes('model')
-        || err?.message?.includes('недоступна')
-        || err?.message?.includes('does not exist')
-        || err?.status === 404;
-      const errorText = isModelError
-        ? `❌ Модель недоступна в вашем аккаунте.\n\nПереключитесь на *gpt-4o* через меню 👉 Модель.`
-        : `❌ Ошибка: ${err.message}`;
-      try {
-        if (waitMsg?.message_id) {
-          await safeEdit(ctx, waitMsg.message_id, errorText);
-        } else {
-          await safeReply(ctx, errorText);
-        }
-      } catch (replyErr) {
-        console.error('[Chat] failed to send error message:', replyErr.message);
-      }
+    const uid = ctx.from.id;
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
+
+    await setProcessing(uid, true);
+    const waitMsg = await ctx.reply('🤔 Думаю…');
+    try {
+      await processUserText(ctx, ctx.message.text || '', waitMsg);
     } finally {
       await setProcessing(uid, false);
+    }
+  });
+
+  bot.on('voice', async (ctx) => {
+    const uid = ctx.from.id;
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
+
+    if (!ctx.message?.voice) {
+      return;
+    }
+
+    await setProcessing(uid, true);
+    const recognitionMsg = await ctx.reply('🎤 Распознаю голос…');
+    try {
+      const fileLink = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
+      const response = await fetch(fileLink.href);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const transcription = (await transcribeVoice(buffer, { language: 'ru' })).trim();
+      if (!transcription) {
+        await safeEdit(ctx, recognitionMsg.message_id, '❌ Не удалось распознать речь.');
+        return;
+      }
+
+      await ctx.reply(`🎤 Распознано: "${transcription}"`);
+
+      const waitMsg = await ctx.reply('🤔 Думаю…');
+      await processUserText(ctx, transcription, waitMsg);
+    } catch (err) {
+      console.error('[Voice] error:', err.message);
+      await safeReply(ctx, `❌ Ошибка: ${err.message}`);
+    } finally {
+      await setProcessing(uid, false);
+      await ctx.telegram.deleteMessage(ctx.chat.id, recognitionMsg.message_id).catch(() => {});
     }
   });
 

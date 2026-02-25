@@ -18,6 +18,11 @@ export const setupCallbacks = (bot) => {
     await showDialogs(ctx, parseInt(ctx.match[1]));
   });
 
+  bot.action('dialogs_list', async (ctx) => {
+    await ctx.answerCbQuery();
+    await showDialogs(ctx, 0);
+  });
+
   // ── Open dialog ───────────────────────────────────────────────────
   bot.action(/^open:(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
