@@ -1,5 +1,5 @@
 import {
-  getActiveConv, redis,
+  getActiveConv, isProcessing, setProcessing, redis,
   getUserModel, getWebSearch, getThinkingLevel,
 } from '../../services/redis.js';
 import {
@@ -283,15 +283,32 @@ export const setupChat = (bot) => {
       await finishPromptCreation(ctx);
       return;
     }
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
 
+    await setProcessing(uid, true);
     const waitMsg = await ctx.reply('🤔 Думаю…');
-    await processUserText(ctx, ctx.message.text || '', waitMsg);
+    try {
+      await processUserText(ctx, ctx.message.text || '', waitMsg);
+    } finally {
+      await setProcessing(uid, false);
+    }
   });
 
   bot.on('voice', async (ctx) => {
     const uid = ctx.from.id;
-    if (!ctx.message?.voice) return;
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
 
+    if (!ctx.message?.voice) {
+      return;
+    }
+
+    await setProcessing(uid, true);
     const recognitionMsg = await ctx.reply('🎤 Распознаю голос…');
     try {
       const fileLink = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
@@ -304,12 +321,14 @@ export const setupChat = (bot) => {
       }
 
       await ctx.reply(`🎤 Распознано: "${transcription}"`);
+
       const waitMsg = await ctx.reply('🤔 Думаю…');
       await processUserText(ctx, transcription, waitMsg);
     } catch (err) {
       console.error('[Voice] error:', err.message);
       await safeReply(ctx, `❌ Ошибка: ${err.message}`);
     } finally {
+      await setProcessing(uid, false);
       await ctx.telegram.deleteMessage(ctx.chat.id, recognitionMsg.message_id).catch(() => {});
     }
   });
@@ -322,6 +341,12 @@ export const setupChat = (bot) => {
       return;
     }
 
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите, обрабатываю предыдущий запрос…');
+      return;
+    }
+
+    await setProcessing(uid, true);
     const waitMsg = await ctx.reply('📄 Анализирую файл…');
 
     try {
@@ -354,7 +379,12 @@ export const setupChat = (bot) => {
       await addMessage(convId, 'assistant', result, model);
 
       const finalKb = buildFinalKb(convId);
-      await safeSendLong(ctx, result, waitMsg.message_id, { ...finalKb });
+      await safeSendLong(
+        ctx,
+        result,
+        waitMsg.message_id,
+        { ...finalKb }
+      );
 
       if (result.length > 4000) {
         const buffer = Buffer.from(result, 'utf-8');
@@ -366,6 +396,8 @@ export const setupChat = (bot) => {
     } catch (err) {
       console.error('[File] analysis error:', err.message);
       await safeEdit(ctx, waitMsg.message_id, `❌ Ошибка при анализе файла: ${err.message}`);
+    } finally {
+      await setProcessing(uid, false);
     }
   });
 
@@ -377,16 +409,23 @@ export const setupChat = (bot) => {
       return;
     }
 
+    if (await isProcessing(uid)) {
+      await ctx.reply('⏳ Подождите…');
+      return;
+    }
+
+    await setProcessing(uid, true);
     const waitMsg = await ctx.reply('🔍 Анализирую изображение…');
 
     try {
-      const model = await getUserModel(uid);
+      const model   = await getUserModel(uid);
       if (!supportsVision(model)) {
         await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
         await ctx.reply(
           `⛔ Модель \`${model}\` не поддерживает анализ изображений.\nВыберите GPT-4o или GPT-5 в 🧠 Модель GPT.`,
           { parse_mode: 'Markdown', ...chatKb(convId) }
         );
+        await setProcessing(uid, false);
         return;
       }
       const photo   = ctx.message.photo[ctx.message.photo.length - 1];
@@ -403,6 +442,8 @@ export const setupChat = (bot) => {
     } catch (err) {
       console.error('[Photo] error:', err.message);
       await safeEdit(ctx, waitMsg.message_id, `❌ Ошибка: ${err.message}`);
+    } finally {
+      await setProcessing(uid, false);
     }
   });
 };
