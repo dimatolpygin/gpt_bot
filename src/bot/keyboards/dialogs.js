@@ -30,6 +30,7 @@ export const chatKb = (convId, wsEnabled = false) => {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🗑 Удалить диалог', `del_ask:${convId}`)],
     [Markup.button.callback('✏️ Переименовать', `rename:${convId}`)],
+    [Markup.button.callback('🎨 Nano Banana', 'nb_menu')],
     [Markup.button.callback('◀️ К диалогам', 'dialogs:0')],
     [Markup.button.callback('🏠 Меню', 'main_menu')],
     [Markup.button.callback(wsLabel, `toggle_ws:${convId}`)],

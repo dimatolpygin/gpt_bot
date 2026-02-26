@@ -14,4 +14,5 @@ export const config = {
   ALLOWED_USERS:     process.env.ALLOWED_USERS
     ? process.env.ALLOWED_USERS.split(',').map(s => parseInt(s.trim())).filter(Boolean)
     : [],
+  WAVESPEED_API_KEY: process.env.WAVESPEED_API_KEY || '',
 };
