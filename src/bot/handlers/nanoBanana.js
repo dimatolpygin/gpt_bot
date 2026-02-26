@@ -1,5 +1,6 @@
 import { Markup } from 'telegraf';
 import { redis } from '../../services/redis.js';
+import fetch from 'node-fetch';
 import {
   nanoBananaTextToImage, nanoBananaEdit,
   nanoBanana2TextToImage, nanoBanana2Edit,
@@ -9,7 +10,6 @@ const SIZES  = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 const RESOLS = ['1k', '2k', '4k'];
 const PRICE  = { '1k': '$0.08', '2k': '$0.08', '4k': '$0.16' };
 
-// Кодируем : → _ в callback_data чтобы не ломать regex
 const encSize = (s) => s.replace(':', 'x');
 const decSize = (s) => s.replace('x', ':');
 
@@ -47,6 +47,14 @@ const safeEdit = async (ctx, text, extra = {}) => {
   await ctx.editMessageText(text, { parse_mode: 'HTML', ...extra }).catch(() =>
     ctx.reply(text, { parse_mode: 'HTML', ...extra })
   );
+};
+
+// Скачиваем изображение по URL и возвращаем Buffer
+const downloadImage = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to download image: ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return buffer;
 };
 
 export const setupNanoBanana = (bot) => {
@@ -96,14 +104,12 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // size в callback закодирован: 16x9 вместо 16:9
   bot.action(/^nb_size:(nb1|nb2):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model   = ctx.match[1];
     const mode    = ctx.match[2];
     const resol   = ctx.match[3];
-    const sizeEnc = ctx.match[4];
-    const size    = decSize(sizeEnc);
+    const size    = decSize(ctx.match[4]);
     const uid     = ctx.from.id;
 
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
@@ -180,11 +186,17 @@ export const setupNanoBanana = (bot) => {
           : await nanoBananaTextToImage(prompt, size);
       }
 
+      // Скачиваем буфер и отправляем напрямую — Telegram не может сам скачать URL WaveSpeed
+      const imageBuffer = await downloadImage(imageUrl);
+
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-      await ctx.replyWithPhoto(imageUrl, {
-        caption: `🎨 <b>${modelLabel}</b>${resolLabel} · ${size}\n<i>${prompt.slice(0, 200)}</i>`,
-        parse_mode: 'HTML',
-      });
+      await ctx.replyWithPhoto(
+        { source: imageBuffer, filename: 'result.png' },
+        {
+          caption: `🎨 <b>${modelLabel}</b>${resolLabel} · ${size}\n<i>${prompt.slice(0, 200)}</i>`,
+          parse_mode: 'HTML',
+        }
+      );
     } catch (err) {
       console.error('[NanoBanana] error:', err.message);
       await ctx.telegram.editMessageText(
