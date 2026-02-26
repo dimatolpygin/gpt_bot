@@ -44,8 +44,14 @@ bot.catch((err, ctx) => {
     console.warn(`[Bot] handler timeout (${ctx.updateType})`);
     return;
   }
-  console.error(`[Bot] unhandled error (${ctx.updateType}):`, err);
-  ctx.reply('❌ Внутренняя ошибка. Попробуйте позже.').catch(() => {});
+  const message = err?.message?.toLowerCase() || '';
+  if (message.includes('query is too old')
+      || message.includes('query id is invalid')
+      || message.includes('response timeout expired')) {
+    return;
+  }
+  console.error(`[Bot] unhandled error (${ctx?.updateType}):`, err);
+  ctx?.reply('❌ Внутренняя ошибка. Попробуйте позже.').catch(() => {});
 });
 
 // ── Launch ────────────────────────────────────────────────────────────
