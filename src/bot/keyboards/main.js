@@ -9,7 +9,7 @@ export const mainMenu = async (userId) => {
     [Markup.button.callback('📋 Мои диалоги', 'dialogs:0')],
     [Markup.button.callback('➕ Новый диалог', 'new_dialog')],
     [Markup.button.callback('Модель GPT', 'model_menu')],
-    [Markup.button.callback('📚 Промты', 'prompts')],
+    [Markup.button.callback('💡 Промты', 'prompts')],
   ];
 
 
