@@ -5,16 +5,18 @@ import {
   nanoBanana2TextToImage, nanoBanana2Edit,
 } from '../../services/wavespeed.js';
 
-const SIZES    = ['1:1', '16:9', '9:16', '4:3', '3:4'];
-const RESOLS   = ['1k', '2k', '4k'];
-const PRICE    = { '1k': '$0.08', '2k': '$0.08', '4k': '$0.16' };
+const SIZES  = ['1:1', '16:9', '9:16', '4:3', '3:4'];
+const RESOLS = ['1k', '2k', '4k'];
+const PRICE  = { '1k': '$0.08', '2k': '$0.08', '4k': '$0.16' };
 
-// ── Keyboards ─────────────────────────────────────────────────────────────────
+// Кодируем : → _ в callback_data чтобы не ломать regex
+const encSize = (s) => s.replace(':', 'x');
+const decSize = (s) => s.replace('x', ':');
 
 const cancelRow = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
 
 const modelKb = () => Markup.inlineKeyboard([
-  [Markup.button.callback('🍌 Nano Banana',   'nb_model:nb1')],
+  [Markup.button.callback('🍌 Nano Banana',    'nb_model:nb1')],
   [Markup.button.callback('🍌🍌 Nano Banana 2', 'nb_model:nb2')],
   [Markup.button.callback('❌ Отмена', 'nb_cancel')],
 ]);
@@ -31,11 +33,9 @@ const resolKb = (model, mode) => Markup.inlineKeyboard([
 ]);
 
 const sizeKb = (model, mode, resol) => Markup.inlineKeyboard([
-  SIZES.map(s => Markup.button.callback(s, `nb_size:${model}:${mode}:${resol}:${s}`)),
+  SIZES.map(s => Markup.button.callback(s, `nb_size:${model}:${mode}:${resol}:${encSize(s)}`)),
   cancelRow,
 ]);
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const cleanState = async (uid) => {
   for (const k of ['state', 'model', 'mode', 'resol', 'size', 'photo_url']) {
@@ -49,11 +49,8 @@ const safeEdit = async (ctx, text, extra = {}) => {
   );
 };
 
-// ── Setup ─────────────────────────────────────────────────────────────────────
-
 export const setupNanoBanana = (bot) => {
 
-  // Главное меню Nano Banana
   bot.action('nb_menu', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await safeEdit(ctx,
@@ -64,7 +61,6 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // Выбор модели
   bot.action(/^nb_model:(nb1|nb2)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -72,52 +68,50 @@ export const setupNanoBanana = (bot) => {
     await safeEdit(ctx, '🖼 Выберите режим:', { reply_markup: modeKb(model).reply_markup });
   });
 
-  // Выбор режима
   bot.action(/^nb_mode:(nb1|nb2):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     const mode  = ctx.match[2];
-    const uid   = ctx.from.id;
-    await redis.set(`nb:${uid}:mode`, mode, 'EX', 600);
+    await redis.set(`nb:${ctx.from.id}:mode`, mode, 'EX', 600);
 
     if (model === 'nb2') {
-      // NB2: сначала качество
       await safeEdit(ctx,
         '📊 <b>Выберите качество:</b>\n\n1k = $0.08 · 2k = $0.08 · 4k = $0.16',
         { reply_markup: resolKb(model, mode).reply_markup }
       );
     } else {
-      // NB1: сразу формат
       await safeEdit(ctx, '📐 Выберите формат:', { reply_markup: sizeKb(model, mode, 'std').reply_markup });
     }
   });
 
-  // Выбор качества (NB2)
   bot.action(/^nb_resol:(nb2):(txt2img|img2img):(1k|2k|4k)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     const mode  = ctx.match[2];
     const resol = ctx.match[3];
     await redis.set(`nb:${ctx.from.id}:resol`, resol, 'EX', 600);
-    await safeEdit(ctx, `📐 Качество: <b>${resol}</b>\n\nВыберите формат:`,
+    await safeEdit(ctx,
+      `📐 Качество: <b>${resol}</b>\n\nВыберите формат:`,
       { reply_markup: sizeKb(model, mode, resol).reply_markup }
     );
   });
 
-  // Выбор формата (aspect ratio)
-  bot.action(/^nb_size:(nb1|nb2):(txt2img|img2img):([^:]+):([^:]+)$/, async (ctx) => {
+  // size в callback закодирован: 16x9 вместо 16:9
+  bot.action(/^nb_size:(nb1|nb2):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const model = ctx.match[1];
-    const mode  = ctx.match[2];
-    const resol = ctx.match[3];
-    const size  = ctx.match[4];
-    const uid   = ctx.from.id;
+    const model   = ctx.match[1];
+    const mode    = ctx.match[2];
+    const resol   = ctx.match[3];
+    const sizeEnc = ctx.match[4];
+    const size    = decSize(sizeEnc);
+    const uid     = ctx.from.id;
+
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
 
     if (mode === 'img2img') {
       await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
       await safeEdit(ctx,
-        `📐 Формат: <b>${size}</b>\n\n📸 Теперь отправьте фото для редактирования:`,
+        `📐 Формат: <b>${size}</b>\n\n📸 Отправьте фото для редактирования:`,
         { reply_markup: { inline_keyboard: [cancelRow] } }
       );
     } else {
@@ -129,14 +123,12 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
-  // Отмена
   bot.action('nb_cancel', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cleanState(ctx.from.id);
     await ctx.editMessageText('❌ Отменено.').catch(() => {});
   });
 
-  // Получение фото (img2img)
   bot.on('photo', async (ctx, next) => {
     const uid   = ctx.from.id;
     const state = await redis.get(`nb:${uid}:state`);
@@ -154,7 +146,6 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // Получение промпта → генерация
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid   = ctx.from.id;
@@ -162,10 +153,10 @@ export const setupNanoBanana = (bot) => {
     if (state !== 'await_prompt') return next();
 
     const prompt   = ctx.message.text;
-    const model    = await redis.get(`nb:${uid}:model`) || 'nb1';
-    const mode     = await redis.get(`nb:${uid}:mode`)  || 'txt2img';
-    const size     = await redis.get(`nb:${uid}:size`)  || '1:1';
-    const resol    = await redis.get(`nb:${uid}:resol`) || '1k';
+    const model    = await redis.get(`nb:${uid}:model`)     || 'nb1';
+    const mode     = await redis.get(`nb:${uid}:mode`)      || 'txt2img';
+    const size     = await redis.get(`nb:${uid}:size`)      || '1:1';
+    const resol    = await redis.get(`nb:${uid}:resol`)     || '1k';
     const photoUrl = await redis.get(`nb:${uid}:photo_url`);
 
     await cleanState(uid);
