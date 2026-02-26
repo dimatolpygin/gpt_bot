@@ -6,7 +6,7 @@ import {
   addMessage, getMessages,
   updateConvTitle,
 } from '../../services/supabase.js';
-import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter, transcribeVoice } from '../../services/openai.js';
+import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter, transcribeVoice, generateImage, openai } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
 import { supportsChat, supportsVision, supportsWS, VALID_MODELS } from '../keyboards/models.js';
 import { mainMenu } from '../keyboards/main.js';
@@ -14,6 +14,7 @@ import { config } from '../../config/index.js';
 import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 import { startThinkingAnimation, stopThinkingAnimation } from '../utils/thinkingAnimation.js';
+import { isImageRequest, detectImageSize } from '../utils/imageDetect.js';
 import { getActivePrompt } from '../../services/supabase.js';
 import { finishPromptCreation } from './prompts.js';
 
@@ -56,18 +57,66 @@ const processUserText = async (ctx, userText, waitMsg) => {
   const isFirst = history.length === 0;
   const messageText = userText || '';
 
-  await addMessage(convId, 'user', messageText);
-  if (isFirst) {
-    const t = messageText;
-    await updateConvTitle(convId, t.length > 45 ? `${t.slice(0, 45)}…` : t);
-  }
-
   const [model, wsEnabled, thinkLevel] = await Promise.all([
     getUserModel(uid),
     getWebSearch(uid),
     getThinkingLevel(uid),
   ]);
   const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
+
+  if (isImageRequest(messageText)) {
+    const processingMsgId = waitMsg?.message_id;
+    await safeEdit(ctx, processingMsgId, '🎨 Генерирую изображение...');
+    try {
+      const promptMessages = [
+        {
+          role: 'system',
+          content: 'You are an image prompt engineer. The user wants to generate an image. Extract the image description from the user message and return ONLY an optimized English prompt for image generation. No explanations, no extra text. Just the prompt.',
+        },
+        { role: 'user', content: messageText },
+      ];
+
+      let imagePrompt = messageText;
+      try {
+        const promptResp = await openai.responses.create({
+          model: 'gpt-4o-mini',
+          input: promptMessages,
+        });
+        imagePrompt = promptResp.output_text?.trim() || messageText;
+      } catch (err) {
+        console.warn('[Image] prompt optimization failed, using original:', err.message);
+      }
+
+      console.log('[Image] optimized prompt:', imagePrompt.slice(0, 120));
+      const size = detectImageSize(messageText);
+      const imageBuffer = await generateImage(imagePrompt, size);
+
+      try {
+        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsgId);
+      } catch (_) {}
+
+      await ctx.replyWithPhoto(
+        { source: imageBuffer, filename: 'image.png' },
+        { caption: `🎨 <i>${imagePrompt.slice(0, 200)}</i>`, parse_mode: 'HTML' }
+      );
+
+      if (convId) {
+        await addMessage(convId, 'user', messageText);
+        await addMessage(convId, 'assistant', `[Изображение сгенерировано]\nПромт: ${imagePrompt}`, safeModel);
+      }
+      return;
+    } catch (err) {
+      console.error('[Image] generation error:', err.message);
+      await safeEdit(ctx, waitMsg.message_id, `❌ Ошибка генерации: ${err.message}`);
+      return;
+    }
+  }
+
+  await addMessage(convId, 'user', messageText);
+  if (isFirst) {
+    const t = messageText;
+    await updateConvTitle(convId, t.length > 45 ? `${t.slice(0, 45)}…` : t);
+  }
 
   if (!supportsChat(safeModel)) {
     await ctx.reply(

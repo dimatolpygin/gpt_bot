@@ -295,3 +295,27 @@ export const transcribeVoice = async (audioBuffer, options = {}) => {
 };
 
 export { openai };
+
+export async function generateImage(prompt, size = '1024x1024') {
+  console.log('[Image] generating:', prompt.slice(0, 80));
+
+  const response = await openai.images.generate({
+    model: 'gpt-image-1.5',
+    prompt,
+    n: 1,
+    size,
+    quality: 'medium',
+    output_format: 'png',
+  });
+
+  const item = response.data?.[0];
+  if (!item) throw new Error('No image data');
+  if (item.b64_json) {
+    return Buffer.from(item.b64_json, 'base64');
+  }
+  if (item.url) {
+    const res = await fetch(item.url);
+    return Buffer.from(await res.arrayBuffer());
+  }
+  throw new Error('No image data in response');
+}
