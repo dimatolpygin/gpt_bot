@@ -14,7 +14,7 @@ import { config } from '../../config/index.js';
 import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 import { startThinkingAnimation, stopThinkingAnimation } from '../utils/thinkingAnimation.js';
-import { isImageRequest, detectImageSize } from '../utils/imageDetect.js';
+import { isImageRequest, detectImageSize, getSizeLabel } from '../utils/imageDetect.js';
 import { getActivePrompt } from '../../services/supabase.js';
 import { finishPromptCreation } from './prompts.js';
 
@@ -66,7 +66,14 @@ const processUserText = async (ctx, userText, waitMsg) => {
 
   if (isImageRequest(messageText)) {
     const processingMsgId = waitMsg?.message_id;
-    await safeEdit(ctx, processingMsgId, '🎨 Генерирую изображение...');
+    const size = detectImageSize(messageText);
+    const sizeLabel = getSizeLabel(size);
+    await safeEdit(
+      ctx,
+      processingMsgId,
+      `🎨 Генерирую изображение...\n📐 Формат: <b>${sizeLabel}</b>`,
+      { parse_mode: 'HTML' }
+    );
     try {
       const promptMessages = [
         {
@@ -88,7 +95,6 @@ const processUserText = async (ctx, userText, waitMsg) => {
       }
 
       console.log('[Image] optimized prompt:', imagePrompt.slice(0, 120));
-      const size = detectImageSize(messageText);
       const imageBuffer = await generateImage(imagePrompt, size);
 
       try {
@@ -97,7 +103,10 @@ const processUserText = async (ctx, userText, waitMsg) => {
 
       await ctx.replyWithPhoto(
         { source: imageBuffer, filename: 'image.png' },
-        { caption: `🎨 <i>${imagePrompt.slice(0, 200)}</i>`, parse_mode: 'HTML' }
+        {
+          caption: `🎨 <i>${imagePrompt.slice(0, 200)}</i>\n📐 ${sizeLabel}`,
+          parse_mode: 'HTML',
+        }
       );
 
       if (convId) {
