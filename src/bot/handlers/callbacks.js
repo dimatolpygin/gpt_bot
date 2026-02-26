@@ -11,7 +11,7 @@ import {
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
 import { mainMenu }      from '../keyboards/main.js';
 import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
-import { showPromptsList, showDeleteMode, beginPromptCreation } from './prompts.js';
+import { showPromptsList, showPromptView, showDeleteMode, beginPromptCreation } from './prompts.js';
 
 const safeAnswerCbQuery = async (ctx, text, extra) => {
   try {
@@ -52,6 +52,11 @@ export const setupCallbacks = (bot) => {
     await safeAnswerCbQuery(ctx, '✅ Активирован');
     await setActivePrompt(ctx.from.id, parseInt(ctx.match[1]));
     await showPromptsList(ctx);
+  });
+
+  bot.action(/^prompt_view:(\d+)$/, async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    await showPromptView(ctx, parseInt(ctx.match[1]));
   });
 
   bot.action(/^prompt_del:(\d+)$/, async (ctx) => {
@@ -145,7 +150,6 @@ export const setupCallbacks = (bot) => {
       { parse_mode: 'Markdown', ...menu }
     ).catch(() => {});
   });
-
 
   // ── Delete — ask confirmation ─────────────────────────────────────
   bot.action(/^del_ask:(\d+)$/, async (ctx) => {
