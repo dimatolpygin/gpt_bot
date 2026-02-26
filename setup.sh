@@ -22,44 +22,18 @@ systemctl enable redis-server > /dev/null 2>&1
 systemctl start redis-server > /dev/null 2>&1
 echo -e "${GREEN}✅ Зависимости установлены${NC}"
 
-# ─── 2. SSH КЛЮЧ ────────────────────────────────────────────────────────────
+# ─── 2. КЛОНИРОВАНИЕ ────────────────────────────────────────────────────────
 
-echo -e "${YELLOW}[2/6] Настройка SSH ключа для GitHub...${NC}"
-if [ ! -f ~/.ssh/id_ed25519 ]; then
-    ssh-keygen -t ed25519 -C "deploy" -f ~/.ssh/id_ed25519 -N "" > /dev/null 2>&1
-fi
-
-echo -e "${GREEN}"
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  Добавьте этот ключ в GitHub:                                   ║"
-echo "║  GitHub → Settings → SSH and GPG keys → New SSH key            ║"
-echo "╚══════════════════════════════════════════════════════════════════╝"
-echo -e "${NC}"
-cat ~/.ssh/id_ed25519.pub
-echo ""
-read -p "После добавления ключа нажмите Enter..."
-
-ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-TEST=$(ssh -T git@github.com 2>&1)
-if echo "$TEST" | grep -q "successfully authenticated"; then
-    echo -e "${GREEN}✅ GitHub SSH подключен${NC}"
-else
-    echo -e "${RED}❌ Ошибка SSH. Проверьте что ключ добавлен в GitHub${NC}"
-    exit 1
-fi
-
-# ─── 3. КЛОНИРОВАНИЕ ────────────────────────────────────────────────────────
-
-echo -e "${YELLOW}[3/6] Клонирование репозитория...${NC}"
+echo -e "${YELLOW}[2/6] Клонирование репозитория...${NC}"
 rm -rf /root/gpt-telegram-bot
-git clone git@github.com:dimatolpygin/gpt_bot.git /root/gpt-telegram-bot > /dev/null 2>&1
+git clone https://github.com/dimatolpygin/gpt_bot.git /root/gpt-telegram-bot > /dev/null 2>&1
 cd /root/gpt-telegram-bot
 npm install > /dev/null 2>&1
 echo -e "${GREEN}✅ Репозиторий клонирован${NC}"
 
-# ─── 4. ENV ФАЙЛ ────────────────────────────────────────────────────────────
+# ─── 3. ENV ФАЙЛ ────────────────────────────────────────────────────────────
 
-echo -e "${YELLOW}[4/6] Настройка переменных окружения...${NC}"
+echo -e "${YELLOW}[3/6] Настройка переменных окружения...${NC}"
 echo ""
 echo "Заполните данные (Enter — пропустить необязательное):"
 echo ""
@@ -94,9 +68,9 @@ EOF
 
 echo -e "${GREEN}✅ .env файл создан${NC}"
 
-# ─── 5. NGINX + SSL ─────────────────────────────────────────────────────────
+# ─── 4. NGINX + SSL ─────────────────────────────────────────────────────────
 
-echo -e "${YELLOW}[5/6] Настройка Nginx и SSL...${NC}"
+echo -e "${YELLOW}[4/6] Настройка Nginx и SSL...${NC}"
 
 cat > /etc/nginx/sites-available/${DOMAIN} << EOF
 server {
@@ -124,22 +98,54 @@ certbot --nginx -d ${DOMAIN} \
 
 echo -e "${GREEN}✅ Nginx и SSL настроены${NC}"
 
-# ─── 6. ЗАПУСК БОТА ─────────────────────────────────────────────────────────
+# ─── 5. ЗАПУСК БОТА ─────────────────────────────────────────────────────────
 
-echo -e "${YELLOW}[6/6] Запуск бота...${NC}"
+echo -e "${YELLOW}[5/6] Запуск бота...${NC}"
 cd /root/gpt-telegram-bot
 pm2 start src/index.js --name gpt-bot
 pm2 save
 pm2 startup > /dev/null 2>&1
+echo -e "${GREEN}✅ Бот запущен${NC}"
+
+# ─── 6. АВТООБНОВЛЕНИЕ ЧЕРЕЗ CRON ───────────────────────────────────────────
+
+echo -e "${YELLOW}[6/6] Настройка автообновления...${NC}"
+
+cat > /root/update.sh << 'UPDATEEOF'
+#!/bin/bash
+cd /root/gpt-telegram-bot
+git fetch origin main
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+if [ "$LOCAL" != "$REMOTE" ]; then
+    echo "[$(date)] Обновление бота..."
+    git pull origin main
+    npm install --production
+    pm2 restart gpt-bot --update-env
+    echo "[$(date)] ✅ Бот обновлён"
+else
+    echo "[$(date)] Обновлений нет"
+fi
+UPDATEEOF
+
+chmod +x /root/update.sh
+
+# Запуск каждые 5 минут
+(crontab -l 2>/dev/null; echo "*/5 * * * * /root/update.sh >> /root/update.log 2>&1") | crontab -
+
+echo -e "${GREEN}✅ Автообновление настроено (каждые 5 минут)${NC}"
+
+# ─── ФИНАЛ ──────────────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${GREEN}"
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║              ✅ Бот успешно развёрнут!                          ║"
 echo "║                                                                  ║"
-echo "║  Домен:  https://${DOMAIN}                                      ║"
-echo "║  Логи:   pm2 logs gpt-bot                                       ║"
-echo "║  Статус: pm2 status                                             ║"
+echo "║  Домен:        https://${DOMAIN}                                ║"
+echo "║  Логи бота:    pm2 logs gpt-bot                                 ║"
+echo "║  Статус:       pm2 status                                       ║"
+echo "║  Лог апдейтов: tail -f /root/update.log                        ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
