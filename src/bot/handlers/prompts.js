@@ -14,7 +14,7 @@ export const showPromptsList = async (ctx) => {
   const prompts = await getUserPrompts(userId);
 
   if (prompts.length === 0) {
-    const text = '📝 <b>Системные промты</b>\n\nНет сохранённых промтов.\nНажмите кнопку ниже чтобы добавить:';
+    const text = '📚 <b>Системные промты</b>\n\nНет сохранённых промтов.\nНажмите кнопку ниже чтобы добавить:';
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, {
         parse_mode: 'HTML',
@@ -26,10 +26,16 @@ export const showPromptsList = async (ctx) => {
     return;
   }
 
-  const buttons = prompts.map((p) => ([{
-    text: `${p.is_active ? '✅ ' : ''}${p.name}`,
-    callback_data: `prompt_select:${p.id}`,
-  }]));
+  const buttons = prompts.map((p) => ([
+    {
+      text: `${p.is_active ? '✅ ' : ''}${p.name}`,
+      callback_data: `prompt_select:${p.id}`,
+    },
+    {
+      text: '👁',
+      callback_data: `prompt_view:${p.id}`,
+    },
+  ]));
 
   buttons.push([
     { text: '➕ Добавить', callback_data: 'prompt_add' },
@@ -40,7 +46,7 @@ export const showPromptsList = async (ctx) => {
     { text: '◀️ Назад', callback_data: 'main_menu' },
   ]);
 
-  const text = '📝 <b>Системные промты</b>\n\nВыберите активный промт (✅ — текущий):';
+  const text = '📚 <b>Системные промты</b>\n\nВыберите активный промт (✅ — текущий):\n👁 — просмотреть содержание';
   try {
     await ctx.editMessageText(text, {
       parse_mode: 'HTML',
@@ -52,6 +58,30 @@ export const showPromptsList = async (ctx) => {
     }
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
   }
+};
+
+export const showPromptView = async (ctx, promptId) => {
+  const userId = ctx.from.id;
+  const prompts = await getUserPrompts(userId);
+  const prompt = prompts.find((p) => p.id === promptId);
+
+  if (!prompt) {
+    await ctx.answerCbQuery('❌ Промт не найден').catch(() => {});
+    return;
+  }
+
+  const status = prompt.is_active ? '✅ Активный' : '⬜ Неактивный';
+  const text =
+    `📚 <b>${prompt.name}</b>\n` +
+    `${status}\n\n` +
+    `<blockquote>${prompt.content}</blockquote>`;
+
+  await ctx.editMessageText(text, {
+    parse_mode: 'HTML',
+    reply_markup: {
+      inline_keyboard: [[{ text: '◀️ Назад к промтам', callback_data: 'prompts' }]],
+    },
+  }).catch(() => {});
 };
 
 export const showDeleteMode = async (ctx) => {
@@ -100,7 +130,7 @@ export const finishPromptCreation = async (ctx) => {
   await ctx.reply(`✅ Промт "<b>${name}</b>" сохранён!`, {
     parse_mode: 'HTML',
     reply_markup: {
-      inline_keyboard: [[{ text: '📝 К промтам', callback_data: 'prompts' }]],
+      inline_keyboard: [[{ text: '📚 К промтам', callback_data: 'prompts' }]],
     },
   });
 };
