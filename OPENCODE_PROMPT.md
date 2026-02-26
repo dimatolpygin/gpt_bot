@@ -2,77 +2,76 @@
 
 ## Контекст проекта
 
-Node.js Telegram-бот на Telegraf v4 с GPT-стримингом, Supabase (PostgreSQL) и Redis.
+Telegram-бот на Telegraf v4, который общается с OpenAI (GPT-4o / GPT-5) в стриминге, хранит диалоги в Supabase и использует Redis как быстрый хранилище состояния.
 
-**Стек:**
-- `telegraf` ^4.16.3 — Telegram Bot API
-- `openai` ^4.28.0 — GPT-4o с потоковой передачей
-- `@supabase/supabase-js` ^2.39.0 — база данных
-- `ioredis` ^5.3.2 — кэш, сессии, processing lock
-- ES Modules (`"type": "module"`)
-- Node.js 20+
+**Стек:** Node 20+, ES Modules, `telegraf`, `openai`, `@supabase/supabase-js`, `ioredis`, `express`, `dotenv`.
 
 ## Архитектура
 
 ```
 src/
-├── index.js                  # Точка входа, middlewares, запуск
-├── config/index.js           # Все настройки из process.env
+├── index.js               # точка входа: авторизация, bot.launch, Express WebApp server
+├── config/index.js        # конфиг из process.env
+├── server.js              # `/webapp` + `/api/history` + Telegram WebApp validation
 ├── services/
-│   ├── openai.js             # streamChat() — стриминг ответов GPT
-│   ├── supabase.js           # CRUD: users, conversations, messages
-│   └── redis.js              # getActiveConv, setActiveConv, isProcessing, setProcessing
+│   ├── openai.js          # streamChat/webSearchChat, codeInterpreter, generateImage, transcribeVoice, mdToHtml
+│   ├── supabase.js        # users/conversations/messages/prompts helpers
+│   └── redis.js           # conv/model/processing locks/prompt state/thinking/web-search toggle
 ├── bot/
-│   ├── middleware/auth.js    # Whitelist фильтр
+│   ├── middleware/auth.js # whitelist (ALLOWED_USERS)
 │   ├── handlers/
-│   │   ├── index.js          # Регистрация всех handlers
-│   │   ├── start.js          # /start, /menu, /new, /dialogs, /help
-│   │   ├── dialogs.js        # showDialogs, openDialog, createNewDialog
-│   │   ├── chat.js           # bot.on('text') → GPT streaming
-│   │   └── callbacks.js      # Все inline callback_query actions
+│   │   ├── start.js       # /start /menu /new /dialogs /help
+│   │   ├── dialogs.js     # отображение списков/историй
+│   │   ├── chat.js        # message/video/image → GPT / code-interpreter / Whisper / image generation
+│   │   └── callbacks.js   # inline action handlers (с safeAnswerCbQuery)
 │   └── keyboards/
-│       ├── main.js           # mainMenu()
-│       └── dialogs.js        # dialogsKb(), chatKb(), delConfirmKb()
-└── db/migrations/init.sql    # Supabase схема (выполнить вручную)
+│       ├── main.js        # главное меню (📚 Промты, Мышление и т.п.)
+│       ├── dialogs.js     # клавиатуры диалогов
+│       └── models.js      # список моделей + capability map
+├── bot/utils/
+│   ├── format.js          # Markdown → HTML
+│   ├── thinkingAnimation.js# slow-model spinner
+│   ├── imageDetect.js     # детект на запрос картинки
+└── webapp/index.html      # статический интерфейс истории (markdown → html)
 ```
 
-## База данных (Supabase)
+## Supabase
 
-Три таблицы: `users`, `conversations`, `messages`.
-`conversations.user_id` — это `telegram_id` пользователя.
-`messages.role` ∈ `{user, assistant, system}`.
+Таблицы: `bot_users`, `bot_conversations`, `bot_messages`, `user_prompts`.
+`user_prompts` хранит `name`, `content`, `is_active` и позволяет переключаться на активный системный промт.
+Ещё есть вспомогательные views (init.sql применить вручную при первом запуске).
 
-## Ключевая логика
+## Ключевые фичи
 
-1. **Мультипользователь**: `user_id = ctx.from.id` везде, запросы изолированы.
-2. **Активный диалог**: хранится в Redis (`u:{uid}:conv`). При смене темы — обновляем.
-3. **Стриминг**: `streamChat()` вызывает `onChunk` каждые ~800 мс, `onDone` — финальный текст.
-4. **Processing lock**: `u:{uid}:busy` в Redis TTL 90s — защита от дублей.
-5. **Авто-заголовок**: первое сообщение пользователя → заголовок диалога.
-6. **Пагинация**: `DIALOGS_PER_PAGE=5`, callback `dialogs:{page}`.
+1. **Redis-статусы**: `conv:{uid}`, `model:{uid}`, `lock:{uid}`, `wsearch:{uid}`, `prompt_add_state:{uid}`, `thinking:{uid}`.
+2. **Промты**: кнопка `📚 Промты` открывает список, позволяет выбрать/добавить/удалить, активный промт инжектится перед первым system-а.
+3. **Автогенерация изображений**: `imageDetect` ловит «нарисуй», GPT-4o-mini оптимизирует промт → `generateImage` (gpt-image-1.5/1) возвращает PNG.
+4. **Голос**: `transcribeVoice` (Whisper) → текст и `processUserText` переиспользует логику chat.
+5. **Code interpreter**: ловим `needsCodeInterpreter`, всегда используем `gpt-4o` и retry на 429, отправляем файлы.
+6. **HTML-ответы**: `mdToHtml` → `safeSendLong` → `parse_mode: 'HTML'`, `fetch` с Markdown теперь безопасно отображает bold/code/link.
+7. **WebApp**: Express обрабатывает `/webapp` и `/api/history`, WebApp рендерит markdown/scroll и требует `WEBAPP_URL`/`TELEGRAM_INIT_DATA`.
 
-## Что нужно сделать
+## Что сделать при локальной разработке
 
-1. Убедись, что `.env` заполнен (BOT_TOKEN, OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY).
-2. В Supabase SQL Editor выполни `src/db/migrations/init.sql`.
-3. Установи зависимости: `npm install`
-4. Запусти: `npm run dev` (локально) или `docker compose up -d` (сервер).
+1. Скопируй `.env.example` → `.env` и заполни `BOT_TOKEN`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `REDIS_URL`, `WEBAPP_URL`.
+2. Выполни миграцию `src/db/migrations/init.sql` в Supabase (ручной запуск через SQL Editor).
+3. Установи зависимости `npm install`.
+4. Запусти `npm run dev` (или `./setup.sh` + `docker compose up -d` для докерной среды).
 
-## Правила при изменении кода
+## Процесс изменений
 
-- Всегда `async/await`, не смешивать с `.then()`.
-- `ctx.from.id` — Telegram user ID (число), использовать везде как `uid`.
-- `ctx.answerCbQuery()` вызывать в `callbacks.js`, не внутри helper-функций.
-- Ловить ошибку "message is not modified" при `editMessageText`.
-- При ошибке парсинга Markdown — повторить запрос без `parse_mode`.
-- Markdown в Telegram: **bold** = `*text*`, `inline code` = \`code\`.
+- Всегда `await`. Не миксуй `then` и `await`.
+- `ctx.from.id` сохраняем как `uid`, используем для Redis/Supabase.
+- `safeAnswerCbQuery` и `bot.catch` игнорируют просроченные callback query и таймауты.
+- `safeSendLong` уже форматирует Markdown → HTML.
+- Markdown-правила: `*bold*`, `_italic_`, `` `inline` ``, triple ```code```.
 
 ## Git workflow
 
 ```
-git checkout dev
-# разработка и тесты
-git merge dev main
-git push origin main
-# → GitHub Actions деплоит на сервер через SSH
+git checkout dev        # работа
+git merge dev main      # только по согласованию
+git push origin main    # main — стабильный
 ```
+
+Пока нет CI/CD: пуш в `main` делает человек, автодеплой отсутствует (скрипт `setup.sh` можно использовать для ручного развертывания).
