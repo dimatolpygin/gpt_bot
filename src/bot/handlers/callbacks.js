@@ -13,66 +13,72 @@ import { mainMenu }      from '../keyboards/main.js';
 import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
 import { showPromptsList, showDeleteMode, beginPromptCreation } from './prompts.js';
 
+const safeAnswerCbQuery = async (ctx, text, extra) => {
+  try {
+    await ctx.answerCbQuery(text, extra);
+  } catch (_) {}
+};
+
 export const setupCallbacks = (bot) => {
 
   // ── Dialog list (paginated) ───────────────────────────────────────
   bot.action(/^dialogs:(-?\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await showDialogs(ctx, parseInt(ctx.match[1]));
   });
 
   bot.action('prompts', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await showPromptsList(ctx);
   });
 
   bot.action('prompt_add', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await beginPromptCreation(ctx);
   });
 
   bot.action('prompt_delete_mode', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await showDeleteMode(ctx);
   });
 
   bot.action('prompt_reset', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await setActivePrompt(ctx.from.id, null);
     await showPromptsList(ctx);
   });
 
   bot.action(/^prompt_select:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery('✅ Активирован');
+    await safeAnswerCbQuery(ctx, '✅ Активирован');
     await setActivePrompt(ctx.from.id, parseInt(ctx.match[1]));
     await showPromptsList(ctx);
   });
 
   bot.action(/^prompt_del:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery('🗑 Удалён');
+    await safeAnswerCbQuery(ctx, '🗑 Удалён');
     await deleteUserPrompt(ctx.from.id, parseInt(ctx.match[1]));
     await showDeleteMode(ctx);
   });
 
   bot.action('dialogs_list', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await showDialogs(ctx, 0);
   });
 
   // ── Open dialog ───────────────────────────────────────────────────
   bot.action(/^open:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await openDialog(ctx, parseInt(ctx.match[1]));
   });
 
   // ── New dialog ────────────────────────────────────────────────────
   bot.action('new_dialog', async (ctx) => {
-    await ctx.answerCbQuery('✨ Создаю…');
+    await safeAnswerCbQuery(ctx, '✨ Создаю…');
     await createNewDialog(ctx);
   });
 
   bot.action(/^rename:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     const convId = parseInt(ctx.match[1]);
     await redis.set(`u:${ctx.from.id}:rename`, convId, 'EX', 120);
     await ctx.editMessageText(
@@ -82,7 +88,7 @@ export const setupCallbacks = (bot) => {
   });
 
   bot.action('model_menu', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     const currentModel = await getUserModel(ctx.from.id);
     await ctx.editMessageText(
       `🧠 *Выбор модели GPT*\n\nТекущая: \`${currentModel}\``,
@@ -93,9 +99,12 @@ export const setupCallbacks = (bot) => {
   bot.action(/^set_model:(.+)$/, async (ctx) => {
     const model = ctx.match[1];
     const isValid = MODELS.some(m => m.id === model);
-    if (!isValid) return ctx.answerCbQuery('❌ Неизвестная модель');
+    if (!isValid) {
+      await safeAnswerCbQuery(ctx, '❌ Неизвестная модель');
+      return;
+    }
 
-    await ctx.answerCbQuery(`✅ Модель: ${model}`);
+    await safeAnswerCbQuery(ctx, `✅ Модель: ${model}`);
     await setUserModel(ctx.from.id, model);
 
     await ctx.editMessageText(
@@ -106,7 +115,7 @@ export const setupCallbacks = (bot) => {
 
   // ── Main menu ─────────────────────────────────────────────────────
   bot.action('main_menu', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     const menu = await mainMenu(ctx.from.id);
     await ctx.editMessageText('🏠 *Главное меню*', {
       parse_mode: 'Markdown', ...menu,
@@ -114,13 +123,13 @@ export const setupCallbacks = (bot) => {
   });
 
   bot.action('toggle_thinking', async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     const userId = ctx.from.id;
     const current = await getThinkingLevel(userId);
     const next = nextThinkingLevel(current);
     const model = await getUserModel(userId);
     if (!supportsReasoning(model)) {
-      await ctx.answerCbQuery('⚠️ Текущая модель не поддерживает режим мышления', { show_alert: true });
+      await safeAnswerCbQuery(ctx, '⚠️ Текущая модель не поддерживает режим мышления', { show_alert: true });
       return;
     }
     await setThinkingLevel(userId, next);
@@ -140,7 +149,7 @@ export const setupCallbacks = (bot) => {
 
   // ── Delete — ask confirmation ─────────────────────────────────────
   bot.action(/^del_ask:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     await ctx.editMessageText(
       '⚠️ *Удалить диалог?*\nВсё содержимое будет удалено без возможности восстановления.',
       { parse_mode: 'Markdown', ...delConfirmKb(parseInt(ctx.match[1])) }
@@ -149,7 +158,7 @@ export const setupCallbacks = (bot) => {
 
   // ── Delete — confirmed ────────────────────────────────────────────
   bot.action(/^del_ok:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery('🗑 Удалено');
+    await safeAnswerCbQuery(ctx, '🗑 Удалено');
     const convId = parseInt(ctx.match[1]);
     const uid    = ctx.from.id;
 
@@ -162,15 +171,15 @@ export const setupCallbacks = (bot) => {
   });
 
   bot.action(/^toggle_ws:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+    await safeAnswerCbQuery(ctx);
     const convId = parseInt(ctx.match[1]);
     const uid    = ctx.from.id;
     let enabled = await toggleWebSearch(uid);
-    await ctx.answerCbQuery(enabled ? '🌐 Web Search включён' : '🌐 Web Search выключен');
+    await safeAnswerCbQuery(ctx, enabled ? '🌐 Web Search включён' : '🌐 Web Search выключен');
 
     const currentModel = await getUserModel(uid);
     if (enabled && !supportsWS(currentModel)) {
-      await ctx.answerCbQuery(`⚠️ ${currentModel} не поддерживает Web Search. Смените модель.`, { show_alert: true });
+      await safeAnswerCbQuery(ctx, `⚠️ ${currentModel} не поддерживает Web Search. Смените модель.`, { show_alert: true });
       enabled = await toggleWebSearch(uid);
       const rollbackKb = chatKb(convId, enabled);
       await ctx.editMessageReplyMarkup(rollbackKb.reply_markup).catch(() => {});
@@ -182,5 +191,5 @@ export const setupCallbacks = (bot) => {
   });
 
   // ── No-op (page indicator) ────────────────────────────────────────
-  bot.action('noop', (ctx) => ctx.answerCbQuery());
+  bot.action('noop', (ctx) => safeAnswerCbQuery(ctx));
 };
