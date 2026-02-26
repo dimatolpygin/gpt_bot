@@ -285,7 +285,9 @@ export const setupChat = (bot) => {
     }
 
     const waitMsg = await ctx.reply('🤔 Думаю…');
-    await processUserText(ctx, ctx.message.text || '', waitMsg);
+    processUserText(ctx, ctx.message.text || '', waitMsg).catch(err => {
+      console.error('[Chat] async processing error:', err);
+    });
   });
 
   bot.on('voice', async (ctx) => {
