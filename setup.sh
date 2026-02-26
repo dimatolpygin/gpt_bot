@@ -37,7 +37,7 @@ echo ""
 
 echo -e "${YELLOW}[1/5] Установка зависимостей...${NC}"
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash - > /dev/null 2>&1
-apt install -y nodejs nginx certbot python3-certbot-nginx redis-server > /dev/null 2>&1
+DEBIAN_FRONTEND=noninteractive apt install -y nodejs nginx certbot python3-certbot-nginx redis-server > /dev/null 2>&1
 npm install -g pm2 > /dev/null 2>&1
 systemctl enable redis-server > /dev/null 2>&1
 systemctl start redis-server > /dev/null 2>&1
@@ -74,13 +74,14 @@ EOF
 
 echo -e "${GREEN}✅ .env файл создан${NC}"
 
-# ─── 4. NGINX + SSL ─────────────────────────────────────────────────────────
+# ─── 4. NGINX (только HTTP) ─────────────────────────────────────────────────
 
 echo -e "${YELLOW}[4/5] Настройка Nginx и SSL...${NC}"
 
-NGINX_CONF="/etc/nginx/sites-available/${DOMAIN}"
+# Удалить дефолтный конфиг
+rm -f /etc/nginx/sites-enabled/default
 
-cat > "${NGINX_CONF}" << EOF
+cat > /etc/nginx/sites-available/${DOMAIN} << EOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -96,15 +97,54 @@ server {
 }
 EOF
 
-ln -sf "${NGINX_CONF}" /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
 nginx -t > /dev/null 2>&1 && systemctl restart nginx
 
-certbot --nginx -d "${DOMAIN}" \
+# Получить SSL через standalone (не через nginx плагин)
+systemctl stop nginx
+certbot certonly --standalone \
+  -d "${DOMAIN}" \
   --email "${EMAIL}" \
   --agree-tos \
   --non-interactive > /dev/null 2>&1
+SSL_EXIT=$?
+systemctl start nginx
 
-echo -e "${GREEN}✅ Nginx и SSL настроены${NC}"
+if [ $SSL_EXIT -ne 0 ]; then
+    echo -e "${RED}❌ Не удалось получить SSL сертификат. Проверьте что домен указывает на этот сервер.${NC}"
+    echo -e "${YELLOW}Бот будет работать по HTTP. Для HTTPS запустите вручную:${NC}"
+    echo "certbot --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive"
+else
+    # Обновить nginx конфиг с SSL
+    cat > /etc/nginx/sites-available/${DOMAIN} << EOF
+server {
+    listen 80;
+    server_name ${DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+    nginx -t > /dev/null 2>&1 && systemctl restart nginx
+    echo -e "${GREEN}✅ Nginx и SSL настроены${NC}"
+fi
 
 # ─── 5. ЗАПУСК + АВТООБНОВЛЕНИЕ ─────────────────────────────────────────────
 
@@ -113,7 +153,7 @@ echo -e "${YELLOW}[5/5] Запуск бота и настройка автооб
 cd /root/gpt-telegram-bot
 pm2 start src/index.js --name gpt-bot > /dev/null 2>&1
 pm2 save > /dev/null 2>&1
-pm2 startup > /dev/null 2>&1
+env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u root --hp /root > /dev/null 2>&1
 
 cat > /root/update.sh << 'UPDATEEOF'
 #!/bin/bash
@@ -131,7 +171,7 @@ fi
 UPDATEEOF
 
 chmod +x /root/update.sh
-(crontab -l 2>/dev/null; echo "*/5 * * * * /root/update.sh >> /root/update.log 2>&1") | crontab -
+(crontab -l 2>/dev/null | grep -v update.sh; echo "*/5 * * * * /root/update.sh >> /root/update.log 2>&1") | crontab -
 
 echo -e "${GREEN}✅ Бот запущен, автообновление активно (каждые 5 минут)${NC}"
 
