@@ -7,65 +7,64 @@ const HEADERS = () => ({
   'Content-Type': 'application/json',
 });
 
-/**
- * Text-to-image: Google Nano Banana
- */
+// ── Nano Banana 1 ─────────────────────────────────────────────────────────────
+
 export const nanoBananaTextToImage = async (prompt, aspectRatio = '1:1') => {
   const res = await fetch(`${BASE}/google/nano-banana/text-to-image`, {
     method: 'POST',
     headers: HEADERS(),
-    body: JSON.stringify({
-      prompt,
-      aspect_ratio: aspectRatio,
-      output_format: 'png',
-      enable_sync_mode: false,
-    }),
+    body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, output_format: 'png', enable_sync_mode: false }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
-
-  const requestId = data?.data?.id;
-  if (!requestId) throw new Error('WaveSpeed: no request ID');
-  return pollResult(requestId);
+  return pollResult(data?.data?.id);
 };
 
-/**
- * Image-to-image edit: Google Nano Banana Edit
- * imageUrl — публичный URL исходного фото
- */
 export const nanoBananaEdit = async (imageUrl, prompt, aspectRatio = '1:1') => {
   const res = await fetch(`${BASE}/google/nano-banana/edit`, {
     method: 'POST',
     headers: HEADERS(),
-    body: JSON.stringify({
-      images: [imageUrl],
-      prompt,
-      aspect_ratio: aspectRatio,
-      output_format: 'png',
-      enable_sync_mode: false,
-    }),
+    body: JSON.stringify({ images: [imageUrl], prompt, aspect_ratio: aspectRatio, output_format: 'png', enable_sync_mode: false }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
-
-  const requestId = data?.data?.id;
-  if (!requestId) throw new Error('WaveSpeed: no request ID');
-  return pollResult(requestId);
+  return pollResult(data?.data?.id);
 };
 
-/**
- * Polling результата
- */
+// ── Nano Banana 2 ─────────────────────────────────────────────────────────────
+
+export const nanoBanana2TextToImage = async (prompt, aspectRatio = '1:1', resolution = '1k') => {
+  const res = await fetch(`${BASE}/google/nano-banana-2/text-to-image`, {
+    method: 'POST',
+    headers: HEADERS(),
+    body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, resolution, output_format: 'png', enable_sync_mode: false }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id);
+};
+
+export const nanoBanana2Edit = async (imageUrl, prompt, aspectRatio = '1:1', resolution = '1k') => {
+  const res = await fetch(`${BASE}/google/nano-banana-2/edit`, {
+    method: 'POST',
+    headers: HEADERS(),
+    body: JSON.stringify({ images: [imageUrl], prompt, aspect_ratio: aspectRatio, resolution, output_format: 'png', enable_sync_mode: false }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id);
+};
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+
 const pollResult = async (requestId) => {
+  if (!requestId) throw new Error('WaveSpeed: no request ID');
   const MAX_ATTEMPTS = 30;
   const INTERVAL_MS  = 3000;
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     await new Promise(r => setTimeout(r, INTERVAL_MS));
-
-    const res  = await fetch(`${BASE}/predictions/${requestId}/result`, {
-      headers: HEADERS(),
-    });
+    const res  = await fetch(`${BASE}/predictions/${requestId}/result`, { headers: HEADERS() });
     const data = await res.json();
     const status = data?.data?.status;
 
@@ -75,9 +74,8 @@ const pollResult = async (requestId) => {
       return url;
     }
     if (status === 'failed') {
-      throw new Error(`WaveSpeed generation failed: ${data?.data?.error || 'unknown'}`);
+      throw new Error(`WaveSpeed failed: ${data?.data?.error || 'unknown'}`);
     }
-    // 'created' | 'processing' — продолжаем
   }
-  throw new Error('WaveSpeed: timeout — generation took too long');
+  throw new Error('WaveSpeed: timeout');
 };
