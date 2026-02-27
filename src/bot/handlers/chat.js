@@ -49,7 +49,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
 
   const convId = await getActiveConv(uid);
   if (!convId) {
-    await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', await mainMenu(uid));
+    await ctx.reply('❌ Нет активного диалога. Выберите или создайте:', await mainMenu());
     return;
   }
 
@@ -320,7 +320,7 @@ export const setupChat = (bot) => {
     const uid = ctx.from.id;
     const convId = await getActiveConv(uid);
     if (!convId) {
-      await ctx.reply('❌ Нет активного диалога.', await mainMenu(uid));
+      await ctx.reply('❌ Нет активного диалога.', await mainMenu());
       return;
     }
 
@@ -375,7 +375,7 @@ export const setupChat = (bot) => {
     const uid    = ctx.from.id;
     const convId = await getActiveConv(uid);
     if (!convId) {
-      await ctx.reply('❌ Нет активного диалога.', await mainMenu(uid));
+      await ctx.reply('❌ Нет активного диалога.', await mainMenu());
       return;
     }
 

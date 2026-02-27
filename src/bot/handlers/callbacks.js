@@ -10,6 +10,7 @@ import {
 } from '../../services/redis.js';
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
 import { mainMenu }      from '../keyboards/main.js';
+import { gptMenu }      from '../keyboards/gptMenu.js';
 import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
 import { showPromptsList, showPromptView, showDeleteMode, beginPromptCreation } from './prompts.js';
 
@@ -30,6 +31,17 @@ export const setupCallbacks = (bot) => {
   bot.action('prompts', async (ctx) => {
     await safeAnswerCbQuery(ctx);
     await showPromptsList(ctx);
+  });
+
+  bot.action('menu_gpt', async (ctx) => {
+    await safeAnswerCbQuery(ctx);
+    const kb = await gptMenu(ctx.from.id);
+    await ctx.editMessageText(
+      '🤖 <b>GPT</b>\n\nВыберите действие:',
+      { parse_mode: 'HTML', reply_markup: kb.reply_markup }
+    ).catch(() =>
+      ctx.reply('🤖 <b>GPT</b>\n\nВыберите действие:', { parse_mode: 'HTML', reply_markup: kb.reply_markup })
+    );
   });
 
   bot.action('prompt_add', async (ctx) => {
@@ -121,7 +133,7 @@ export const setupCallbacks = (bot) => {
   // ── Main menu ─────────────────────────────────────────────────────
   bot.action('main_menu', async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    const menu = await mainMenu(ctx.from.id);
+    const menu = await mainMenu();
     await ctx.editMessageText('🏠 *Главное меню*', {
       parse_mode: 'Markdown', ...menu,
     }).catch(() => {});
@@ -139,7 +151,7 @@ export const setupCallbacks = (bot) => {
     }
     await setThinkingLevel(userId, next);
 
-    const menu = await mainMenu(userId);
+    const menu = await mainMenu();
     await ctx.editMessageText(
       `🧠 Режим мышления: ${next}\n\n` +
       `none — без размышлений (быстро)\n` +

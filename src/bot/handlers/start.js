@@ -2,25 +2,13 @@ import { mainMenu } from '../keyboards/main.js';
 
 export const setupStart = (bot) => {
   bot.start(async (ctx) => {
-    const name = ctx.from.first_name || 'пользователь';
-    const menu = await mainMenu(ctx.from.id);
-    await ctx.reply(
-      `👋 Привет, *${name}*!
-\n\n` +
-      `Я твой персональный GPT-ассистент.
-` +
-      `• Создавай диалоги по темам
-` +
-      `• Переключайся между ними в любой момент
-` +
-      `• Каждый пользователь видит только свои диалоги`,
-      { parse_mode: 'Markdown', ...menu }
-    );
+    const menu = await mainMenu();
+    await ctx.reply('👋 Привет! Выберите раздел:', { reply_markup: menu.reply_markup });
   });
 
   bot.command('menu', async (ctx) => {
-    const menu = await mainMenu(ctx.from.id);
-    await ctx.reply('🏠 *Главное меню*', { parse_mode: 'Markdown', ...menu });
+    const menu = await mainMenu();
+    await ctx.reply('👋 Главное меню. Выберите раздел:', { reply_markup: menu.reply_markup });
   });
 
   bot.command('new', async (ctx) => {
