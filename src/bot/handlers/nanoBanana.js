@@ -37,8 +37,14 @@ const sizeKb = (model, mode, resol) => Markup.inlineKeyboard([
   cancelRow,
 ]);
 
+// Клавиатура после получения фото — добавить ещё или хватит
+const photoNextKb = (count) => Markup.inlineKeyboard([
+  [Markup.button.callback(`✅ Хватит (${count} фото)`, 'nb_photos_done')],
+  [Markup.button.callback('❌ Отмена', 'nb_cancel')],
+]);
+
 const cleanState = async (uid) => {
-  for (const k of ['state', 'model', 'mode', 'resol', 'size', 'photo_url']) {
+  for (const k of ['state', 'model', 'mode', 'resol', 'size', 'photos', 'photo_count']) {
     await redis.del(`nb:${uid}:${k}`);
   }
 };
@@ -49,16 +55,29 @@ const safeEdit = async (ctx, text, extra = {}) => {
   );
 };
 
-// Скачиваем изображение по URL и возвращаем Buffer
 const downloadImage = async (url) => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to download image: ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return buffer;
+  return Buffer.from(await res.arrayBuffer());
+};
+
+// Сохраняем URL фото в Redis как JSON-массив
+const addPhotoUrl = async (uid, url) => {
+  const raw = await redis.get(`nb:${uid}:photos`);
+  const list = raw ? JSON.parse(raw) : [];
+  list.push(url);
+  await redis.set(`nb:${uid}:photos`, JSON.stringify(list), 'EX', 600);
+  return list.length;
+};
+
+const getPhotoUrls = async (uid) => {
+  const raw = await redis.get(`nb:${uid}:photos`);
+  return raw ? JSON.parse(raw) : [];
 };
 
 export const setupNanoBanana = (bot) => {
 
+  // ── Главное меню ──────────────────────────────────────────────────
   bot.action('nb_menu', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await safeEdit(ctx,
@@ -69,6 +88,7 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
+  // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -76,6 +96,7 @@ export const setupNanoBanana = (bot) => {
     await safeEdit(ctx, '🖼 Выберите режим:', { reply_markup: modeKb(model).reply_markup });
   });
 
+  // ── Выбор режима ──────────────────────────────────────────────────
   bot.action(/^nb_mode:(nb1|nb2):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -92,6 +113,7 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
+  // ── Выбор качества (NB2) ──────────────────────────────────────────
   bot.action(/^nb_resol:(nb2):(txt2img|img2img):(1k|2k|4k)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -104,20 +126,21 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
+  // ── Выбор формата ─────────────────────────────────────────────────
   bot.action(/^nb_size:(nb1|nb2):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const model   = ctx.match[1];
-    const mode    = ctx.match[2];
-    const resol   = ctx.match[3];
-    const size    = decSize(ctx.match[4]);
-    const uid     = ctx.from.id;
+    const model = ctx.match[1];
+    const mode  = ctx.match[2];
+    const resol = ctx.match[3];
+    const size  = decSize(ctx.match[4]);
+    const uid   = ctx.from.id;
 
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
 
     if (mode === 'img2img') {
       await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
       await safeEdit(ctx,
-        `📐 Формат: <b>${size}</b>\n\n📸 Отправьте фото для редактирования:`,
+        `📐 Формат: <b>${size}</b>\n\n📸 Отправьте первое фото:`,
         { reply_markup: { inline_keyboard: [cancelRow] } }
       );
     } else {
@@ -129,12 +152,26 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
+  // ── Кнопка "Хватит фото" ──────────────────────────────────────────
+  bot.action('nb_photos_done', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const uid   = ctx.from.id;
+    const urls  = await getPhotoUrls(uid);
+    await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
+    await ctx.editMessageText(
+      `✅ Фото получено: <b>${urls.length} шт</b>\n\n✍️ Напишите промпт что сделать с фото:`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [cancelRow] } }
+    ).catch(() => {});
+  });
+
+  // ── Отмена ────────────────────────────────────────────────────────
   bot.action('nb_cancel', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cleanState(ctx.from.id);
     await ctx.editMessageText('❌ Отменено.').catch(() => {});
   });
 
+  // ── Получение фото ────────────────────────────────────────────────
   bot.on('photo', async (ctx, next) => {
     const uid   = ctx.from.id;
     const state = await redis.get(`nb:${uid}:state`);
@@ -142,28 +179,27 @@ export const setupNanoBanana = (bot) => {
 
     const photo   = ctx.message.photo[ctx.message.photo.length - 1];
     const fileUrl = await ctx.telegram.getFileLink(photo.file_id);
-    await redis.set(`nb:${uid}:photo_url`, fileUrl.href, 'EX', 600);
-    await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
+    const count   = await addPhotoUrl(uid, fileUrl.href);
 
-    const size = await redis.get(`nb:${uid}:size`) || '1:1';
     await ctx.reply(
-      `✅ Фото получено!\n📐 Формат: <b>${size}</b>\n\n✍️ Напишите промпт что сделать с фото:`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [cancelRow] } }
+      `📸 Фото ${count} получено!\n\nОтправьте ещё фото или нажмите <b>Хватит</b>:`,
+      { parse_mode: 'HTML', reply_markup: photoNextKb(count).reply_markup }
     );
   });
 
+  // ── Получение промпта и генерация ─────────────────────────────────
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid   = ctx.from.id;
     const state = await redis.get(`nb:${uid}:state`);
     if (state !== 'await_prompt') return next();
 
-    const prompt   = ctx.message.text;
-    const model    = await redis.get(`nb:${uid}:model`)     || 'nb1';
-    const mode     = await redis.get(`nb:${uid}:mode`)      || 'txt2img';
-    const size     = await redis.get(`nb:${uid}:size`)      || '1:1';
-    const resol    = await redis.get(`nb:${uid}:resol`)     || '1k';
-    const photoUrl = await redis.get(`nb:${uid}:photo_url`);
+    const prompt    = ctx.message.text;
+    const model     = await redis.get(`nb:${uid}:model`) || 'nb1';
+    const mode      = await redis.get(`nb:${uid}:mode`)  || 'txt2img';
+    const size      = await redis.get(`nb:${uid}:size`)  || '1:1';
+    const resol     = await redis.get(`nb:${uid}:resol`) || '1k';
+    const photoUrls = await getPhotoUrls(uid);
 
     await cleanState(uid);
 
@@ -178,17 +214,15 @@ export const setupNanoBanana = (bot) => {
       let imageUrl;
       if (model === 'nb2') {
         imageUrl = mode === 'img2img'
-          ? await nanoBanana2Edit(photoUrl, prompt, size, resol)
+          ? await nanoBanana2Edit(photoUrls, prompt, size, resol)
           : await nanoBanana2TextToImage(prompt, size, resol);
       } else {
         imageUrl = mode === 'img2img'
-          ? await nanoBananaEdit(photoUrl, prompt, size)
+          ? await nanoBananaEdit(photoUrls, prompt, size)
           : await nanoBananaTextToImage(prompt, size);
       }
 
-      // Скачиваем буфер и отправляем напрямую — Telegram не может сам скачать URL WaveSpeed
       const imageBuffer = await downloadImage(imageUrl);
-
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
       await ctx.replyWithPhoto(
         { source: imageBuffer, filename: 'result.png' },
