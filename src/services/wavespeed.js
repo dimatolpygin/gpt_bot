@@ -54,13 +54,10 @@ export const nanoBanana2Edit = async (imageUrls, prompt, aspectRatio = '1:1', re
 };
 
 // ── Seedream V5 Lite ──────────────────────────────────────────────────────────
-// size format: '1:1'→'2048*2048', '16:9'→'2688*1536', '9:16'→'1536*2688', '4:3'→'2048*1536', '3:4'→'1536*2048'
+
 const SEEDREAM_SIZE_MAP = {
-  '1:1':  '2048*2048',
-  '16:9': '2688*1536',
-  '9:16': '1536*2688',
-  '4:3':  '2048*1536',
-  '3:4':  '1536*2048',
+  '1:1': '2048*2048', '16:9': '2688*1536', '9:16': '1536*2688',
+  '4:3': '2048*1536', '3:4':  '1536*2048',
 };
 
 export const seedreamTextToImage = async (prompt, aspectRatio = '1:1') => {
@@ -86,14 +83,33 @@ export const seedreamEdit = async (imageUrls, prompt, aspectRatio = '1:1') => {
   return pollResult(data?.data?.id);
 };
 
+// ── Seedance V1 Pro i2v 720p ──────────────────────────────────────────────────
+
+export const seedanceI2V = async (imageUrl, prompt = '', duration = 5, aspectRatio = '16:9', cameraFixed = false) => {
+  const body = {
+    image: imageUrl,
+    duration,
+    aspect_ratio: aspectRatio,
+    camera_fixed: cameraFixed,
+    seed: -1,
+  };
+  if (prompt) body.prompt = prompt;
+
+  const res = await fetch(`${BASE}/bytedance/seedance-v1-pro-i2v-720p`, {
+    method: 'POST', headers: HEADERS(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id, 60, 5000); // видео дольше — 60 попыток * 5 сек
+};
+
 // ── Polling ───────────────────────────────────────────────────────────────────
 
-const pollResult = async (requestId) => {
+const pollResult = async (requestId, maxAttempts = 30, intervalMs = 3000) => {
   if (!requestId) throw new Error('WaveSpeed: no request ID');
-  const MAX_ATTEMPTS = 30;
-  const INTERVAL_MS  = 3000;
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await new Promise(r => setTimeout(r, INTERVAL_MS));
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, intervalMs));
     const res  = await fetch(`${BASE}/predictions/${requestId}/result`, { headers: HEADERS() });
     const data = await res.json();
     const status = data?.data?.status;
