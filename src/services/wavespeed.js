@@ -86,22 +86,59 @@ export const seedreamEdit = async (imageUrls, prompt, aspectRatio = '1:1') => {
 // ── Seedance V1 Pro i2v 720p ──────────────────────────────────────────────────
 
 export const seedanceI2V = async (imageUrl, prompt = '', duration = 5, aspectRatio = '16:9', cameraFixed = false) => {
-  const body = {
-    image: imageUrl,
-    duration,
-    aspect_ratio: aspectRatio,
-    camera_fixed: cameraFixed,
-    seed: -1,
-  };
+  const body = { image: imageUrl, duration, aspect_ratio: aspectRatio, camera_fixed: cameraFixed, seed: -1 };
   if (prompt) body.prompt = prompt;
-
   const res = await fetch(`${BASE}/bytedance/seedance-v1-pro-i2v-720p`, {
     method: 'POST', headers: HEADERS(),
     body: JSON.stringify(body),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
-  return pollResult(data?.data?.id, 60, 5000); // видео дольше — 60 попыток * 5 сек
+  return pollResult(data?.data?.id, 60, 5000);
+};
+
+// ── Seedance V1.5 Pro Spicy ───────────────────────────────────────────────────
+
+export const seedance15SpicyI2V = async (imageUrl, prompt = '', duration = 5, aspectRatio = '16:9') => {
+  const body = { image: imageUrl, duration, aspect_ratio: aspectRatio };
+  if (prompt) body.prompt = prompt;
+  const res = await fetch(`${BASE}/bytedance/seedance-v1.5-pro/image-to-video-spicy`, {
+    method: 'POST', headers: HEADERS(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id, 60, 5000);
+};
+
+// ── Kling Video O3 Pro ────────────────────────────────────────────────────────
+// duration: 3-15 сек, sound: bool
+
+export const klingI2V = async (imageUrl, prompt = '', duration = 5, sound = false) => {
+  const body = { image: imageUrl, duration, sound };
+  if (prompt) body.prompt = prompt;
+  const res = await fetch(`${BASE}/kwaivgi/kling-video-o3-pro/image-to-video`, {
+    method: 'POST', headers: HEADERS(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id, 60, 5000);
+};
+
+// ── Hailuo 2.3 Pro ───────────────────────────────────────────────────────────
+// duration: 6 или 10
+
+export const hailuoI2V = async (imageUrl, prompt = '', duration = 6) => {
+  const body = { image: imageUrl, duration, enable_prompt_expansion: true };
+  if (prompt) body.prompt = prompt;
+  const res = await fetch(`${BASE}/minimax/hailuo-2.3/i2v-pro`, {
+    method: 'POST', headers: HEADERS(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id, 60, 5000);
 };
 
 // ── Polling ───────────────────────────────────────────────────────────────────
