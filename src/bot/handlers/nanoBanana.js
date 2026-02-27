@@ -1,6 +1,7 @@
 import { Markup } from 'telegraf';
 import { redis } from '../../services/redis.js';
 import fetch from 'node-fetch';
+import sharp from 'sharp';
 import {
   nanoBananaTextToImage, nanoBananaEdit,
   nanoBanana2TextToImage, nanoBanana2Edit,
@@ -14,6 +15,8 @@ const encSize = (s) => s.replace(':', 'x');
 const decSize = (s) => s.replace('x', ':');
 
 const cancelRow = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
+
+const TG_MAX_BYTES = 9 * 1024 * 1024; // 9 MB — запас до лимита Telegram 10 MB
 
 const modelKb = () => Markup.inlineKeyboard([
   [Markup.button.callback('🍌 Nano Banana',    'nb_model:nb1')],
@@ -37,7 +40,6 @@ const sizeKb = (model, mode, resol) => Markup.inlineKeyboard([
   cancelRow,
 ]);
 
-// Клавиатура после получения фото — добавить ещё или хватит
 const photoNextKb = (count) => Markup.inlineKeyboard([
   [Markup.button.callback(`✅ Хватит (${count} фото)`, 'nb_photos_done')],
   [Markup.button.callback('❌ Отмена', 'nb_cancel')],
@@ -61,9 +63,28 @@ const downloadImage = async (url) => {
   return Buffer.from(await res.arrayBuffer());
 };
 
-// Сохраняем URL фото в Redis как JSON-массив
+/**
+ * Если буфер > TG_MAX_BYTES — сжимаем через sharp до нужного размера.
+ * Возвращает { buffer, compressed: bool }
+ */
+const prepareForTelegram = async (buffer) => {
+  if (buffer.length <= TG_MAX_BYTES) return { buffer, compressed: false };
+
+  // Пробуем jpeg с убывающим качеством
+  let quality = 85;
+  let result  = buffer;
+  while (quality >= 30) {
+    result = await sharp(buffer)
+      .jpeg({ quality })
+      .toBuffer();
+    if (result.length <= TG_MAX_BYTES) break;
+    quality -= 15;
+  }
+  return { buffer: result, compressed: true };
+};
+
 const addPhotoUrl = async (uid, url) => {
-  const raw = await redis.get(`nb:${uid}:photos`);
+  const raw  = await redis.get(`nb:${uid}:photos`);
   const list = raw ? JSON.parse(raw) : [];
   list.push(url);
   await redis.set(`nb:${uid}:photos`, JSON.stringify(list), 'EX', 600);
@@ -77,7 +98,6 @@ const getPhotoUrls = async (uid) => {
 
 export const setupNanoBanana = (bot) => {
 
-  // ── Главное меню ──────────────────────────────────────────────────
   bot.action('nb_menu', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await safeEdit(ctx,
@@ -88,7 +108,6 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -96,7 +115,6 @@ export const setupNanoBanana = (bot) => {
     await safeEdit(ctx, '🖼 Выберите режим:', { reply_markup: modeKb(model).reply_markup });
   });
 
-  // ── Выбор режима ──────────────────────────────────────────────────
   bot.action(/^nb_mode:(nb1|nb2):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -113,7 +131,6 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
-  // ── Выбор качества (NB2) ──────────────────────────────────────────
   bot.action(/^nb_resol:(nb2):(txt2img|img2img):(1k|2k|4k)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -126,7 +143,6 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // ── Выбор формата ─────────────────────────────────────────────────
   bot.action(/^nb_size:(nb1|nb2):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
@@ -152,11 +168,10 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
-  // ── Кнопка "Хватит фото" ──────────────────────────────────────────
   bot.action('nb_photos_done', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const uid   = ctx.from.id;
-    const urls  = await getPhotoUrls(uid);
+    const uid  = ctx.from.id;
+    const urls = await getPhotoUrls(uid);
     await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
     await ctx.editMessageText(
       `✅ Фото получено: <b>${urls.length} шт</b>\n\n✍️ Напишите промпт что сделать с фото:`,
@@ -164,14 +179,12 @@ export const setupNanoBanana = (bot) => {
     ).catch(() => {});
   });
 
-  // ── Отмена ────────────────────────────────────────────────────────
   bot.action('nb_cancel', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cleanState(ctx.from.id);
     await ctx.editMessageText('❌ Отменено.').catch(() => {});
   });
 
-  // ── Получение фото ────────────────────────────────────────────────
   bot.on('photo', async (ctx, next) => {
     const uid   = ctx.from.id;
     const state = await redis.get(`nb:${uid}:state`);
@@ -187,7 +200,6 @@ export const setupNanoBanana = (bot) => {
     );
   });
 
-  // ── Получение промпта и генерация ─────────────────────────────────
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid   = ctx.from.id;
@@ -222,12 +234,27 @@ export const setupNanoBanana = (bot) => {
           : await nanoBananaTextToImage(prompt, size);
       }
 
-      const imageBuffer = await downloadImage(imageUrl);
+      // Скачиваем оригинал
+      const originalBuffer = await downloadImage(imageUrl);
+      const sizeMb = (originalBuffer.length / 1024 / 1024).toFixed(1);
+
+      // Сжимаем если нужно
+      const { buffer: sendBuffer, compressed } = await prepareForTelegram(originalBuffer);
+      const ext = compressed ? 'jpg' : 'png';
+
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+
+      // Подпись — если сжали, добавляем ссылку на оригинал
+      const qualityNote = compressed
+        ? `\n\n🔗 <a href="${imageUrl}">Скачать оригинал (${sizeMb} MB)</a>`
+        : '';
+
       await ctx.replyWithPhoto(
-        { source: imageBuffer, filename: 'result.png' },
+        { source: sendBuffer, filename: `result.${ext}` },
         {
-          caption: `🎨 <b>${modelLabel}</b>${resolLabel} · ${size}\n<i>${prompt.slice(0, 200)}</i>`,
+          caption:
+            `🎨 <b>${modelLabel}</b>${resolLabel} · ${size}\n` +
+            `<i>${prompt.slice(0, 180)}</i>${qualityNote}`,
           parse_mode: 'HTML',
         }
       );
