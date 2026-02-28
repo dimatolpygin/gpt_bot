@@ -17,28 +17,25 @@ import {
 import { getTemplateById } from '../../services/supabase.js';
 
 const TG_MAX = 9 * 1024 * 1024;
-const decSize    = (s) => s.replace('x', ':');
+const decSize     = (s) => s.replace('x', ':');
 const decStarSize = (s) => s.replace(/S/g, '*');
-const cancelRow = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
+const cancelRow   = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
+
+const TPL_KEYS = ['template_mode','template_prompt','template_name'];
 
 const cleanState = async (uid) => {
-  for (const k of ['state','model','mode','resol','size','photos','template_mode','template_prompt','template_name'])
+  for (const k of ['state','model','mode','resol','size','photos', ...TPL_KEYS])
     await redis.del(`nb:${uid}:${k}`);
 };
-const saveLastGen = async (uid, d) => redis.set(`nb:${uid}:last`, JSON.stringify(d), 'EX', 3600);
-const getLastGen  = async (uid) => { const r = await redis.get(`nb:${uid}:last`); return r ? JSON.parse(r) : null; };
+const saveLastGen  = async (uid, d) => redis.set(`nb:${uid}:last`, JSON.stringify(d), 'EX', 3600);
+const getLastGen   = async (uid) => { const r = await redis.get(`nb:${uid}:last`); return r ? JSON.parse(r) : null; };
 const getPhotoUrls = async (uid) => { const r = await redis.get(`nb:${uid}:photos`); return r ? JSON.parse(r) : []; };
 const addPhotoUrl  = async (uid, url) => {
-  const list = await getPhotoUrls(uid);
-  list.push(url);
+  const list = await getPhotoUrls(uid); list.push(url);
   await redis.set(`nb:${uid}:photos`, JSON.stringify(list), 'EX', 600);
   return list.length;
 };
-const downloadImage = async (url) => {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`Download failed: ${r.status}`);
-  return Buffer.from(await r.arrayBuffer());
-};
+const downloadImage = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`Download: ${r.status}`); return Buffer.from(await r.arrayBuffer()); };
 const prepareForTg = async (buf) => {
   if (buf.length <= TG_MAX) return { buffer: buf, compressed: false };
   let q = 85, result = buf;
@@ -76,9 +73,21 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
   }
 };
 
+// Генерация по шаблону — достаём всё из Redis и запускаем
+const generateFromTemplate = async (ctx, uid, extraSize) => {
+  const prompt    = await redis.get(`nb:${uid}:template_prompt`) || '';
+  const model     = await redis.get(`nb:${uid}:model`) || 'nb1';
+  const size      = extraSize || await redis.get(`nb:${uid}:size`) || '1:1';
+  const resol     = await redis.get(`nb:${uid}:resol`) || '1k';
+  const photoUrls = await getPhotoUrls(uid);
+  await cleanState(uid);
+  await generate(ctx, { model, mode: 'img2img', size, resol, photoUrls, prompt });
+};
+
 export const setupNanoBanana = (bot) => {
 
   // ── WebApp: выбор шаблона из галереи ─────────────────────────────
+  // ПОТОК: выбрал шаблон → превью + "отправь своё фото" → фото → модель → размер → генерация
   bot.on('web_app_data', async (ctx) => {
     const uid = ctx.from.id;
     let data;
@@ -90,15 +99,26 @@ export const setupNanoBanana = (bot) => {
       if (!tpl) { await ctx.reply('❌ Шаблон не найден.'); return; }
 
       await cleanState(uid);
-      await redis.set(`nb:${uid}:template_prompt`, tpl.promt || '', 'EX', 3600);
-      await redis.set(`nb:${uid}:template_name`,   tpl.name_batton || '', 'EX', 3600);
-      await redis.set(`nb:${uid}:template_mode`,   'template', 'EX', 3600);
+      await redis.set(`nb:${uid}:template_prompt`, tpl.promt        || '', 'EX', 3600);
+      await redis.set(`nb:${uid}:template_name`,   tpl.name_batton  || '', 'EX', 3600);
+      await redis.set(`nb:${uid}:template_mode`,   'template',           'EX', 3600);
+      await redis.set(`nb:${uid}:mode`,            'img2img',            'EX', 600);
+      await redis.set(`nb:${uid}:state`,           'await_photo',        'EX', 600);
 
-      const tplInfo = tpl.caption ? `\n<i>${tpl.caption}</i>` : '';
-      await ctx.reply(
-        `✅ Шаблон: <b>${tpl.name_batton}</b>${tplInfo}\n\nТеперь выбери модель генерации:`,
-        { parse_mode: 'HTML', reply_markup: (await nbModelKb()).reply_markup }
-      );
+      const caption = [
+        `✅ Шаблон: <b>${tpl.name_batton}</b>`,
+        tpl.caption ? `<i>${tpl.caption}</i>` : '',
+        '',
+        '📸 Отправь своё фото для создания образа:',
+      ].filter(Boolean).join('\n');
+
+      const kb = { inline_keyboard: [cancelRow] };
+      if (tpl.LINK) {
+        await ctx.replyWithPhoto(tpl.LINK, { caption, parse_mode: 'HTML', reply_markup: kb })
+          .catch(() => ctx.reply(caption, { parse_mode: 'HTML', reply_markup: kb }));
+      } else {
+        await ctx.reply(caption, { parse_mode: 'HTML', reply_markup: kb });
+      }
     } catch (err) {
       console.error('[web_app_data]', err.message);
       await ctx.reply('❌ Ошибка при выборе шаблона.');
@@ -108,8 +128,8 @@ export const setupNanoBanana = (bot) => {
   // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e|flux2e)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const model = ctx.match[1];
-    const uid   = ctx.from.id;
+    const model   = ctx.match[1];
+    const uid     = ctx.from.id;
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:model`, model, 'EX', 600);
 
@@ -120,7 +140,7 @@ export const setupNanoBanana = (bot) => {
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
       await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb());
     } else if (tplMode === 'template') {
-      // Шаблонный режим: всегда img2img, без выбора режима
+      // Шаблон: пропускаем выбор режима, всегда img2img
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
       if (model === 'nb2') await cmsEdit(ctx, 'nb_quality', await nbResolKb(model, 'img2img'));
       else await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, 'img2img', 'std'));
@@ -150,11 +170,18 @@ export const setupNanoBanana = (bot) => {
     await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, resol));
   });
 
+  // nb_size — обычный режим + шаблонный (при шаблоне → сразу генерация)
   bot.action(/^nb_size:(nb1|nb2|sd5):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2], resol = ctx.match[3], size = decSize(ctx.match[4]);
-    const uid = ctx.from.id;
+    const uid     = ctx.from.id;
+    const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
+
+    if (tplMode === 'template') {
+      // Фото уже есть → сразу генерируем
+      return generateFromTemplate(ctx, uid, size);
+    }
     const backKb = (back) => ({ inline_keyboard: [[{ text: '◀️ Назад', callback_data: back }], cancelRow] });
     if (mode === 'img2img') {
       await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
@@ -187,8 +214,13 @@ export const setupNanoBanana = (bot) => {
   bot.action(/^nb_gpt_size:(low|medium|high):(\d+S\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const quality = ctx.match[1], size = decStarSize(ctx.match[2]);
-    const uid = ctx.from.id;
+    const uid     = ctx.from.id;
+    const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
+
+    if (tplMode === 'template') {
+      return generateFromTemplate(ctx, uid, size);
+    }
     await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
     await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: `nb_gpt_size_back:${quality}` }], cancelRow] });
   });
@@ -202,9 +234,14 @@ export const setupNanoBanana = (bot) => {
   // ── FLUX.2 Pro Edit ───────────────────────────────────────────────
   bot.action(/^nb_flux2_size:(\d+S\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const size = decStarSize(ctx.match[1]);
-    const uid  = ctx.from.id;
+    const size    = decStarSize(ctx.match[1]);
+    const uid     = ctx.from.id;
+    const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
+
+    if (tplMode === 'template') {
+      return generateFromTemplate(ctx, uid, size);
+    }
     await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
     await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'nb_flux2_size_back' }], cancelRow] });
   });
@@ -225,7 +262,7 @@ export const setupNanoBanana = (bot) => {
     const resol = await redis.get(`nb:${uid}:resol`) || 'std';
     await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
     const backCb = model === 'gpt15e' ? `nb_gpt_size_back:${resol}`
-      : model === 'flux2e'  ? 'nb_flux2_size_back'
+      : model === 'flux2e' ? 'nb_flux2_size_back'
       : `nb_size_back:${model}:${mode}:${resol}`;
     await cmsEdit(ctx, 'nb_photos_done',
       { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] },
@@ -259,7 +296,7 @@ export const setupNanoBanana = (bot) => {
     await ctx.editMessageText('❌ Отменено.').catch(() => {});
   });
 
-  // ── Фото (img2img / шаблон) ───────────────────────────────────────
+  // ── Фото получено ─────────────────────────────────────────────────
   bot.on('photo', async (ctx, next) => {
     const uid = ctx.from.id;
     if (await redis.get(`nb:${uid}:state`) !== 'await_photo') return next();
@@ -268,16 +305,15 @@ export const setupNanoBanana = (bot) => {
     const fileUrl = await ctx.telegram.getFileLink(photo.file_id);
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
 
-    // Шаблонный режим: одно фото → сразу генерация
     if (tplMode === 'template') {
-      const prompt  = await redis.get(`nb:${uid}:template_prompt`) || '';
-      const tplName = await redis.get(`nb:${uid}:template_name`)   || 'Шаблон';
-      const model   = await redis.get(`nb:${uid}:model`) || 'nb1';
-      const size    = await redis.get(`nb:${uid}:size`)  || '1:1';
-      const resol   = await redis.get(`nb:${uid}:resol`) || '1k';
-      await cleanState(uid);
-      await ctx.reply(`🎨 Генерирую по шаблону <b>${tplName}</b>...`, { parse_mode: 'HTML' }).catch(() => {});
-      await generate(ctx, { model, mode: 'img2img', size, resol, photoUrls: [fileUrl.href], prompt });
+      // Шаблонный режим: сохраняем фото → просим выбрать модель
+      await addPhotoUrl(uid, fileUrl.href);
+      await redis.del(`nb:${uid}:state`);
+      const tplName = await redis.get(`nb:${uid}:template_name`) || '';
+      await ctx.reply(
+        `✅ Фото получено!\n\n<b>${tplName}</b> — выбери модель генерации:`,
+        { parse_mode: 'HTML', reply_markup: (await nbModelKb()).reply_markup }
+      );
       return;
     }
 
@@ -300,7 +336,7 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
-  // ── Промт (текст) ─────────────────────────────────────────────────
+  // ── Промт ────────────────────────────────────────────────────────
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid = ctx.from.id;
