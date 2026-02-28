@@ -106,5 +106,5 @@
 - Run `npm run dev` locally whenever you plan to test handler logic, and use `docker compose up -d` for staging-like checks.
 - Add new commands or helpers in the existing folder structure, keeping naming and formatting consistent with this guide.
 - Update this AGENTS.md whenever you add tests, new commands, or modify architecture-critical behavior.
-- Work in the `dev` branch by default; do not merge into `main` without explicit permission from the project owner.
+- Work in the `dev` branch by default; continue to push to `dev` for regular work, and only push to `main` or `norm` when you receive an explicit instruction from the project owner.
 - Thanks for keeping the bot stable—please double-check the README/OPENCODE_PROMPT when in doubt.
