@@ -7,6 +7,14 @@ export const cms = async (key, tpl = {}, fallback = '') => {
   return { text: t, image_url };
 };
 
+/** Получить label кнопки */
+export const getBtn = async (key, fallback = '', tpl = {}) => {
+  const { text } = await getContent(key, fallback);
+  let t = text || fallback;
+  for (const [k, v] of Object.entries(tpl)) t = t.replaceAll(k, v);
+  return t;
+};
+
 export const cmsEdit = async (ctx, key, kb, tpl = {}, fallback = '') => {
   const { text, image_url } = await cms(key, tpl, fallback);
   const extra = { parse_mode: 'HTML', reply_markup: kb?.reply_markup ?? kb };
