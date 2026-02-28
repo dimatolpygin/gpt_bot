@@ -7,7 +7,6 @@ import {
   setActiveConv, setPage,
 } from '../../services/redis.js';
 import { dialogsKb, chatKb } from '../keyboards/dialogs.js';
-import { mainMenu } from '../keyboards/main.js';
 import { Markup } from 'telegraf';
 import { config } from '../../config/index.js';
 import { safeEdit, safeReply } from '../../utils/telegram.js';
@@ -15,6 +14,28 @@ import { safeEdit, safeReply } from '../../utils/telegram.js';
 const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$/, '');
 const buildWebAppUrl = (convId) =>
   `${WEBAPP_BASE}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(WEBAPP_BASE)}`;
+
+// Универсальный edit: text → caption (фото) → reply
+const safeEditOrReply = async (ctx, text, extra) => {
+  try {
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, extra);
+      return;
+    }
+    await ctx.reply(text, extra);
+  } catch (err) {
+    if (
+      err?.description?.includes('there is no text in the message') ||
+      err?.message?.includes('there is no text in the message')
+    ) {
+      try {
+        await ctx.editMessageCaption(text, extra);
+        return;
+      } catch (_) {}
+    }
+    await ctx.reply(text, extra).catch(() => {});
+  }
+};
 
 // ─── Show paginated list ──────────────────────────────────────────────
 
@@ -33,6 +54,7 @@ export const showDialogs = async (ctx, page) => {
     if (ctx.callbackQuery) {
       const messageId = ctx.callbackQuery.message?.message_id;
       if (messageId) await safeEdit(ctx, messageId, text, kb);
+      else await safeReply(ctx, text, kb);
     } else {
       await safeReply(ctx, text, kb);
     }
@@ -78,12 +100,14 @@ export const openDialog = async (ctx, convId) => {
     }
   }
 
-  const messageId = ctx.callbackQuery?.message?.message_id;
+  const extra = { parse_mode: 'Markdown', reply_markup: chatKb(convId).reply_markup };
   try {
-    if (messageId) {
-      await safeEdit(ctx, messageId, text, { reply_markup: chatKb(convId) });
+    if (ctx.callbackQuery) {
+      const messageId = ctx.callbackQuery?.message?.message_id;
+      if (messageId) await safeEdit(ctx, messageId, text, extra);
+      else await safeReply(ctx, text, extra);
     } else {
-      await safeReply(ctx, text, { reply_markup: chatKb(convId) });
+      await safeReply(ctx, text, extra);
     }
   } catch (e) {
     if (!e.description?.includes('not modified')) throw e;
@@ -98,11 +122,6 @@ export const createNewDialog = async (ctx) => {
   await setActiveConv(uid, conv.id);
 
   const text = `✨ *Новый диалог создан*\n\nНапишите первое сообщение!`;
-  const kb   = { parse_mode: 'Markdown', ...chatKb(conv.id) };
-  try {
-    if (ctx.callbackQuery) await ctx.editMessageText(text, kb);
-    else                   await ctx.reply(text, kb);
-  } catch (e) {
-    if (!e.description?.includes('not modified')) throw e;
-  }
+  const extra = { parse_mode: 'Markdown', ...chatKb(conv.id) };
+  await safeEditOrReply(ctx, text, extra);
 };

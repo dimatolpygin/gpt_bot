@@ -16,15 +16,23 @@ import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/mo
 import { showPromptsList, showPromptView, showDeleteMode, beginPromptCreation } from './prompts.js';
 
 const safeAnswerCbQuery = async (ctx, text, extra) => {
-  try {
-    await ctx.answerCbQuery(text, extra);
-  } catch (_) {}
+  try { await ctx.answerCbQuery(text, extra); } catch (_) {}
 };
 
+// Пробует editMessageText → editMessageCaption (фото) → reply
 const safeEditOrReply = async (ctx, text, extra) => {
   try {
     await ctx.editMessageText(text, extra);
-  } catch {
+  } catch (err) {
+    if (
+      err?.description?.includes('there is no text in the message') ||
+      err?.message?.includes('there is no text in the message')
+    ) {
+      try {
+        await ctx.editMessageCaption(text, extra);
+        return;
+      } catch (_) {}
+    }
     await ctx.reply(text, extra).catch(() => {});
   }
 };
@@ -153,13 +161,13 @@ export const setupCallbacks = (bot) => {
     await setThinkingLevel(userId, next);
 
     await safeEditOrReply(ctx,
-      `🧠 Режим мышления: ${next}\n\n` +
+      `🧠 Режим мышления: *${next}*\n\n` +
       `none — без размышлений (быстро)\n` +
       `low — лёгкие рассуждения\n` +
       `medium — стандарт\n` +
       `high — глубокий анализ\n` +
       `xhigh — максимум (медленно, дорого)`,
-      { parse_mode: 'Markdown', reply_markup: mainReplyKeyboard().reply_markup }
+      { parse_mode: 'Markdown', reply_markup: (await gptMenu(userId)).reply_markup }
     );
   });
 
