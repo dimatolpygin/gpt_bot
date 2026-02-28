@@ -38,10 +38,10 @@ export const nbModelKb = async () => {
     ['btn_nb_model_flux2e', 'FLUX.2 Pro Edit'],
     ['btn_cancel',          'Отмена'],
   ]);
-  const galleryUrl = `${config.APP_URL}/gallery`;
+  const galleryUrl = config.APP_URL;
+  const showGallery = galleryUrl && galleryUrl.startsWith('https://');
   return Markup.inlineKeyboard([
-    // Кнопка галереи шаблонов (WebApp)
-    [Markup.button.webApp('📚 Посмотреть шаблоны', galleryUrl)],
+    ...(showGallery ? [[Markup.button.webApp('📚 Посмотреть шаблоны', `${galleryUrl}/gallery`)]] : []),
     [Markup.button.callback(nb1,    'nb_model:nb1')],
     [Markup.button.callback(nb2,    'nb_model:nb2')],
     [Markup.button.callback(sd5,    'nb_model:sd5')],
@@ -65,7 +65,8 @@ export const nbModeKb = async (model) => {
   ]);
 };
 
-export const nbResolKb = async (model, mode) => {
+// backAction — переопределить кнопку "Назад" (для шаблонного режима)
+export const nbResolKb = async (model, mode, backAction = null) => {
   const [r1k, r2k, r4k, back, cancel] = await b([
     ['btn_nb_resol_1k', '1k'],
     ['btn_nb_resol_2k', '2k'],
@@ -73,24 +74,29 @@ export const nbResolKb = async (model, mode) => {
     ['btn_back',        'Назад'],
     ['btn_cancel',      'Отмена'],
   ]);
+  const backCb = backAction || `nb_model:${model}`;
   return Markup.inlineKeyboard([
     [Markup.button.callback(r1k, `nb_resol:${model}:${mode}:1k`),
      Markup.button.callback(r2k, `nb_resol:${model}:${mode}:2k`),
      Markup.button.callback(r4k, `nb_resol:${model}:${mode}:4k`)],
-    [Markup.button.callback(back, `nb_model:${model}`), Markup.button.callback(cancel, 'nb_cancel')],
+    [Markup.button.callback(back, backCb), Markup.button.callback(cancel, 'nb_cancel')],
   ]);
 };
 
-export const nbSizeKb = async (model, mode, resol) => {
-  const backAction = model === 'nb2' ? `nb_resol_back:${model}:${mode}` : `nb_mode:${model}:${mode}`;
+// backAction — переопределить кнопку "Назад" (для шаблонного режима)
+export const nbSizeKb = async (model, mode, resol, backAction = null) => {
+  const defaultBack = model === 'nb2'
+    ? `nb_resol_back:${model}:${mode}`
+    : `nb_mode:${model}:${mode}`;
+  const backCb = backAction || defaultBack;
   const [back, cancel] = await b([['btn_back','Назад'],['btn_cancel','Отмена']]);
   return Markup.inlineKeyboard([
     SIZES.map(s => Markup.button.callback(s, `nb_size:${model}:${mode}:${resol}:${encSize(s)}`)),
-    [Markup.button.callback(back, backAction), Markup.button.callback(cancel, 'nb_cancel')],
+    [Markup.button.callback(back, backCb), Markup.button.callback(cancel, 'nb_cancel')],
   ]);
 };
 
-export const nbGptQualityKb = async () => {
+export const nbGptQualityKb = async (backAction = null) => {
   const [low, med, high, back, cancel] = await b([
     ['btn_nb_gpt_quality_low',    'Low'],
     ['btn_nb_gpt_quality_medium', 'Medium'],
@@ -98,11 +104,12 @@ export const nbGptQualityKb = async () => {
     ['btn_back',   'Назад'],
     ['btn_cancel', 'Отмена'],
   ]);
+  const backCb = backAction || 'nb_model:gpt15e';
   return Markup.inlineKeyboard([
     [Markup.button.callback(low,  'nb_gpt_quality:low')],
     [Markup.button.callback(med,  'nb_gpt_quality:medium')],
     [Markup.button.callback(high, 'nb_gpt_quality:high')],
-    [Markup.button.callback(back, 'nb_model:gpt15e'), Markup.button.callback(cancel, 'nb_cancel')],
+    [Markup.button.callback(back, backCb), Markup.button.callback(cancel, 'nb_cancel')],
   ]);
 };
 
@@ -114,12 +121,13 @@ export const nbGptSizeKb = async (quality) => {
   ]);
 };
 
-export const nbFlux2SizeKb = async () => {
+export const nbFlux2SizeKb = async (backAction = null) => {
   const [back, cancel] = await b([['btn_back', 'Назад'], ['btn_cancel', 'Отмена']]);
+  const backCb = backAction || 'nb_model:flux2e';
   return Markup.inlineKeyboard([
     FLUX2E_SIZES.slice(0, 3).map(s => Markup.button.callback(s.label, `nb_flux2_size:${s.value.replace(/\*/g, 'S')}`)),
     FLUX2E_SIZES.slice(3).map(s => Markup.button.callback(s.label, `nb_flux2_size:${s.value.replace(/\*/g, 'S')}`)),
-    [Markup.button.callback(back, 'nb_model:flux2e'), Markup.button.callback(cancel, 'nb_cancel')],
+    [Markup.button.callback(back, backCb), Markup.button.callback(cancel, 'nb_cancel')],
   ]);
 };
 

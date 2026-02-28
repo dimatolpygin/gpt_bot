@@ -14,18 +14,30 @@ import {
   nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
+import { getTemplateById } from '../../services/supabase.js';
 
 const TG_MAX = 9 * 1024 * 1024;
 const decSize     = (s) => s.replace('x', ':');
 const decStarSize = (s) => s.replace(/S/g, '*');
 const cancelRow   = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
-
-const TPL_KEYS = ['template_mode','template_prompt','template_name'];
+const TPL_BACK    = 'nb_tpl_back';   // кнопка "Назад" в шаблонном режиме → к выбору модели
 
 const cleanState = async (uid) => {
-  for (const k of ['state','model','mode','resol','size','photos', ...TPL_KEYS])
+  for (const k of ['state','model','mode','resol','size','photos',
+                   'template_mode','template_prompt','template_name'])
     await redis.del(`nb:${uid}:${k}`);
 };
+
+// Безопасная правка сообщения (текст ИЛИ подпись к фото)
+const safeEditMsg = async (ctx, text) => {
+  const msg = ctx.callbackQuery?.message;
+  if (msg?.photo || msg?.video || msg?.document) {
+    await ctx.editMessageCaption(text).catch(() => {});
+  } else {
+    await ctx.editMessageText(text).catch(() => {});
+  }
+};
+
 const saveLastGen  = async (uid, d) => redis.set(`nb:${uid}:last`, JSON.stringify(d), 'EX', 3600);
 const getLastGen   = async (uid) => { const r = await redis.get(`nb:${uid}:last`); return r ? JSON.parse(r) : null; };
 const getPhotoUrls = async (uid) => { const r = await redis.get(`nb:${uid}:photos`); return r ? JSON.parse(r) : []; };
@@ -35,7 +47,7 @@ const addPhotoUrl  = async (uid, url) => {
   return list.length;
 };
 const downloadImage = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`Download: ${r.status}`); return Buffer.from(await r.arrayBuffer()); };
-const prepareForTg = async (buf) => {
+const prepareForTg  = async (buf) => {
   if (buf.length <= TG_MAX) return { buffer: buf, compressed: false };
   let q = 85, result = buf;
   while (q >= 30) { result = await sharp(buf).jpeg({ quality: q }).toBuffer(); if (result.length <= TG_MAX) break; q -= 15; }
@@ -56,7 +68,7 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
     else                         imageUrl = mode === 'img2img' ? await nanoBananaEdit(photoUrls, prompt, size) : await nanoBananaTextToImage(prompt, size);
 
     await saveLastGen(ctx.from.id, { model, mode, size, resol, photos: photoUrls, prompt, resultUrl: imageUrl });
-    const orig = await downloadImage(imageUrl);
+    const orig   = await downloadImage(imageUrl);
     const sizeMb = (orig.length / 1024 / 1024).toFixed(1);
     const { buffer: buf, compressed } = await prepareForTg(orig);
     const note = compressed ? `\n\n🔗 <a href="${imageUrl}">Оригинал (${sizeMb} MB)</a>` : '';
@@ -72,11 +84,9 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
   }
 };
 
-// Генерация по шаблону — достаём всё из Redis и запускаем
-const generateFromTemplate = async (ctx, uid, extraSize) => {
+const generateFromTemplate = async (ctx, uid, size) => {
   const prompt    = await redis.get(`nb:${uid}:template_prompt`) || '';
   const model     = await redis.get(`nb:${uid}:model`) || 'nb1';
-  const size      = extraSize || await redis.get(`nb:${uid}:size`) || '1:1';
   const resol     = await redis.get(`nb:${uid}:resol`) || '1k';
   const photoUrls = await getPhotoUrls(uid);
   await cleanState(uid);
@@ -84,6 +94,12 @@ const generateFromTemplate = async (ctx, uid, extraSize) => {
 };
 
 export const setupNanoBanana = (bot) => {
+
+  // ── Назад в шаблонном режиме → повторный выбор модели ─────────────
+  bot.action(TPL_BACK, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await cmsEdit(ctx, 'nb_model', await nbModelKb());
+  });
 
   // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e|flux2e)$/, async (ctx) => {
@@ -95,15 +111,15 @@ export const setupNanoBanana = (bot) => {
 
     if (model === 'gpt15e') {
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
-      await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb());
+      // backAction: в шаблоне → nb_tpl_back, иначе → nb_model:gpt15e (default)
+      await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb(tplMode === 'template' ? TPL_BACK : null));
     } else if (model === 'flux2e') {
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
-      await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb());
+      await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb(tplMode === 'template' ? TPL_BACK : null));
     } else if (tplMode === 'template') {
-      // Шаблон: пропускаем выбор режима, всегда img2img
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
-      if (model === 'nb2') await cmsEdit(ctx, 'nb_quality', await nbResolKb(model, 'img2img'));
-      else await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, 'img2img', 'std'));
+      if (model === 'nb2') await cmsEdit(ctx, 'nb_quality', await nbResolKb(model, 'img2img', TPL_BACK));
+      else await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, 'img2img', 'std', TPL_BACK));
     } else {
       await cmsEdit(ctx, 'nb_mode', await nbModeKb(model));
     }
@@ -126,11 +142,12 @@ export const setupNanoBanana = (bot) => {
   bot.action(/^nb_resol:(nb2):(txt2img|img2img):(1k|2k|4k)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2], resol = ctx.match[3];
+    const tplMode = await redis.get(`nb:${ctx.from.id}:template_mode`);
     await redis.set(`nb:${ctx.from.id}:resol`, resol, 'EX', 600);
-    await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, resol));
+    // В шаблоне кнопка "Назад" в размере → nb_tpl_back
+    await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, resol, tplMode === 'template' ? TPL_BACK : null));
   });
 
-  // nb_size — обычный режим + шаблонный (при шаблоне → сразу генерация)
   bot.action(/^nb_size:(nb1|nb2|sd5):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2], resol = ctx.match[3], size = decSize(ctx.match[4]);
@@ -138,10 +155,8 @@ export const setupNanoBanana = (bot) => {
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
 
-    if (tplMode === 'template') {
-      // Фото уже есть → сразу генерируем
-      return generateFromTemplate(ctx, uid, size);
-    }
+    if (tplMode === 'template') return generateFromTemplate(ctx, uid, size);
+
     const backKb = (back) => ({ inline_keyboard: [[{ text: '◀️ Назад', callback_data: back }], cancelRow] });
     if (mode === 'img2img') {
       await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
@@ -168,7 +183,8 @@ export const setupNanoBanana = (bot) => {
 
   bot.action('nb_gpt_quality_back', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb());
+    const tplMode = await redis.get(`nb:${ctx.from.id}:template_mode`);
+    await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb(tplMode === 'template' ? TPL_BACK : null));
   });
 
   bot.action(/^nb_gpt_size:(low|medium|high):(\d+S\d+)$/, async (ctx) => {
@@ -177,10 +193,7 @@ export const setupNanoBanana = (bot) => {
     const uid     = ctx.from.id;
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
-
-    if (tplMode === 'template') {
-      return generateFromTemplate(ctx, uid, size);
-    }
+    if (tplMode === 'template') return generateFromTemplate(ctx, uid, size);
     await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
     await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: `nb_gpt_size_back:${quality}` }], cancelRow] });
   });
@@ -198,21 +211,19 @@ export const setupNanoBanana = (bot) => {
     const uid     = ctx.from.id;
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
-
-    if (tplMode === 'template') {
-      return generateFromTemplate(ctx, uid, size);
-    }
+    if (tplMode === 'template') return generateFromTemplate(ctx, uid, size);
     await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
     await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [[{ text: '◀️ Назад', callback_data: 'nb_flux2_size_back' }], cancelRow] });
   });
 
   bot.action('nb_flux2_size_back', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
+    const tplMode = await redis.get(`nb:${ctx.from.id}:template_mode`);
     await redis.del(`nb:${ctx.from.id}:state`);
-    await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb());
+    await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb(tplMode === 'template' ? TPL_BACK : null));
   });
 
-  // ── Фото загружено ────────────────────────────────────────────────
+  // ── Фото загружено (обычный режим) ────────────────────────────────
   bot.action('nb_photos_done', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const uid   = ctx.from.id;
@@ -250,10 +261,11 @@ export const setupNanoBanana = (bot) => {
     await cmsSend(ctx, 'nb_edit_prompt', { inline_keyboard: [cancelRow] });
   });
 
+  // ── Отмена — работает и на photo-сообщениях ───────────────────────
   bot.action('nb_cancel', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cleanState(ctx.from.id);
-    await ctx.editMessageText('❌ Отменено.').catch(() => {});
+    await safeEditMsg(ctx, '❌ Отменено.');
   });
 
   // ── Фото получено ─────────────────────────────────────────────────
@@ -266,7 +278,6 @@ export const setupNanoBanana = (bot) => {
     const tplMode = await redis.get(`nb:${uid}:template_mode`);
 
     if (tplMode === 'template') {
-      // Шаблонный режим: сохраняем фото → просим выбрать модель
       await addPhotoUrl(uid, fileUrl.href);
       await redis.del(`nb:${uid}:state`);
       const tplName = await redis.get(`nb:${uid}:template_name`) || '';
@@ -277,7 +288,6 @@ export const setupNanoBanana = (bot) => {
       return;
     }
 
-    // Обычный режим
     const model = await redis.get(`nb:${uid}:model`) || 'nb1';
     const count = await addPhotoUrl(uid, fileUrl.href);
     const maxPhotos = model === 'flux2e' ? 3 : 10;
