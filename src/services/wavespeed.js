@@ -83,6 +83,31 @@ export const seedreamEdit = async (imageUrls, prompt, aspectRatio = '1:1') => {
   return pollResult(data?.data?.id);
 };
 
+// ── GPT Image 1.5 Edit ────────────────────────────────────────────────────────
+// images: array of URLs (1-10)
+// quality: 'low' | 'medium' | 'high'
+// size: '1024*1024' | '1024*1536' | '1536*1024'
+// input_fidelity: 'high' — сохраняет лица/логотипы
+
+export const gptImage15Edit = async (imageUrls, prompt, size = '1024*1024', quality = 'medium') => {
+  const images = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
+  const res = await fetch(`${BASE}/openai/gpt-image-1.5/edit`, {
+    method: 'POST', headers: HEADERS(),
+    body: JSON.stringify({
+      images,
+      prompt,
+      size,
+      quality,
+      input_fidelity: 'high',
+      output_format: 'png',
+      enable_sync_mode: false,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
+  return pollResult(data?.data?.id);
+};
+
 // ── Seedance V1 Pro i2v 720p ──────────────────────────────────────────────────
 
 export const seedanceI2V = async (imageUrl, prompt = '', duration = 5, aspectRatio = '16:9', cameraFixed = false) => {
