@@ -7,18 +7,17 @@ import {
   nanoBananaTextToImage, nanoBananaEdit,
   nanoBanana2TextToImage, nanoBanana2Edit,
   seedreamTextToImage, seedreamEdit,
-  gptImage15Edit,
+  gptImage15Edit, flux2ProEdit,
 } from '../../services/wavespeed.js';
 import {
   nbModelKb, nbModeKb, nbResolKb, nbSizeKb,
-  nbGptQualityKb, nbGptSizeKb,
+  nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
 
 const TG_MAX = 9 * 1024 * 1024;
-const decSize = (s) => s.replace('x', ':');
-// GPT15E: декодировать 'S' обратно в '*'
-const decGptSize = (s) => s.replace(/S/g, '*');
+const decSize    = (s) => s.replace('x', ':');
+const decStarSize = (s) => s.replace(/S/g, '*');
 const cancelRow = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
 
 const cleanState = async (uid) => {
@@ -59,21 +58,20 @@ const prepareForTg = async (buf) => {
 
 const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) => {
   const ml = MODEL_LABELS[model];
-  // resol = quality для gpt15e, resolution для nb2, пусто для остальных
   const rl = (model === 'nb2' || model === 'gpt15e') ? ` · ${resol}` : '';
   const { text: wt } = await cms('nb_generating', {}, '🎨 Генерирую...');
   const waitMsg = await ctx.reply(`${wt}\n${ml}${rl} · ${size}`, { parse_mode: 'HTML' });
   try {
     let imageUrl;
-    if (model === 'nb2') imageUrl = mode === 'img2img'
+    if      (model === 'nb2')    imageUrl = mode === 'img2img'
       ? await nanoBanana2Edit(photoUrls, prompt, size, resol)
       : await nanoBanana2TextToImage(prompt, size, resol);
-    else if (model === 'sd5') imageUrl = mode === 'img2img'
+    else if (model === 'sd5')    imageUrl = mode === 'img2img'
       ? await seedreamEdit(photoUrls, prompt, size)
       : await seedreamTextToImage(prompt, size);
-    else if (model === 'gpt15e')
-      imageUrl = await gptImage15Edit(photoUrls, prompt, size, resol);
-    else imageUrl = mode === 'img2img'
+    else if (model === 'gpt15e') imageUrl = await gptImage15Edit(photoUrls, prompt, size, resol);
+    else if (model === 'flux2e') imageUrl = await flux2ProEdit(photoUrls, prompt, size);
+    else                         imageUrl = mode === 'img2img'
       ? await nanoBananaEdit(photoUrls, prompt, size)
       : await nanoBananaTextToImage(prompt, size);
 
@@ -97,21 +95,23 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
 
 export const setupNanoBanana = (bot) => {
 
-  // ── Выбор модели ────────────────────────────────────────────────
-  bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e)$/, async (ctx) => {
+  // ── Выбор модели ─────────────────────────────────────────────────
+  bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e|flux2e)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     await redis.set(`nb:${ctx.from.id}:model`, model, 'EX', 600);
     if (model === 'gpt15e') {
-      // img2img only — сразу к выбору качества
       await redis.set(`nb:${ctx.from.id}:mode`, 'img2img', 'EX', 600);
       await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb());
+    } else if (model === 'flux2e') {
+      await redis.set(`nb:${ctx.from.id}:mode`, 'img2img', 'EX', 600);
+      await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb());
     } else {
       await cmsEdit(ctx, 'nb_mode', await nbModeKb(model));
     }
   });
 
-  // ── Режим (txt2img / img2img) — для nb1, nb2, sd5 ──────────────
+  // ── Режим (nb1/nb2/sd5) ───────────────────────────────────────────
   bot.action(/^nb_mode:(nb1|nb2|sd5):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2];
@@ -156,7 +156,7 @@ export const setupNanoBanana = (bot) => {
     await cmsEdit(ctx, 'nb_size', await nbSizeKb(ctx.match[1], ctx.match[2], ctx.match[3]));
   });
 
-  // ── GPT Image 1.5 Edit: качество ────────────────────────────────
+  // ── GPT Image 1.5 Edit: качество ─────────────────────────────────
   bot.action(/^nb_gpt_quality:(low|medium|high)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const quality = ctx.match[1];
@@ -169,13 +169,11 @@ export const setupNanoBanana = (bot) => {
     await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb());
   });
 
-  // ── GPT Image 1.5 Edit: размер ───────────────────────────────────
-  // callback: nb_gpt_size:<quality>:<sizeWithS>  (1024S1024 etc.)
+  // ── GPT Image 1.5 Edit: размер ────────────────────────────────────
   bot.action(/^nb_gpt_size:(low|medium|high):(\d+S\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const quality = ctx.match[1];
-    const size    = decGptSize(ctx.match[2]); // '1024*1024'
-    const uid     = ctx.from.id;
+    const quality = ctx.match[1], size = decStarSize(ctx.match[2]);
+    const uid = ctx.from.id;
     await redis.set(`nb:${uid}:size`, size, 'EX', 600);
     await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
     await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [
@@ -186,13 +184,32 @@ export const setupNanoBanana = (bot) => {
   bot.action(/^nb_gpt_size_back:(low|medium|high)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await redis.del(`nb:${ctx.from.id}:state`);
-    await cmsEdit(ctx, 'nb_size', await nbGptSizeKb(ctx.match[1]));
+    const quality = ctx.match[1];
+    await cmsEdit(ctx, 'nb_size', await nbGptSizeKb(quality));
   });
 
-  // ── Фото готово (img2img) ────────────────────────────────────────
+  // ── FLUX.2 Pro Edit: размер ───────────────────────────────────────
+  bot.action(/^nb_flux2_size:(\d+S\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const size = decStarSize(ctx.match[1]);
+    const uid  = ctx.from.id;
+    await redis.set(`nb:${uid}:size`, size, 'EX', 600);
+    await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
+    await cmsEdit(ctx, 'nb_mode_img2img', { inline_keyboard: [
+      [{ text: '◀️ Назад', callback_data: 'nb_flux2_size_back' }], cancelRow
+    ]});
+  });
+
+  bot.action('nb_flux2_size_back', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await redis.del(`nb:${ctx.from.id}:state`);
+    await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb());
+  });
+
+  // ── Фото готово (img2img) ─────────────────────────────────────────
   bot.action('nb_photos_done', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const uid = ctx.from.id;
+    const uid   = ctx.from.id;
     const urls  = await getPhotoUrls(uid);
     const model = await redis.get(`nb:${uid}:model`) || 'nb1';
     const mode  = await redis.get(`nb:${uid}:mode`)  || 'img2img';
@@ -200,6 +217,8 @@ export const setupNanoBanana = (bot) => {
     await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
     const backCb = model === 'gpt15e'
       ? `nb_gpt_size_back:${resol}`
+      : model === 'flux2e'
+      ? 'nb_flux2_size_back'
       : `nb_size_back:${model}:${mode}:${resol}`;
     await cmsEdit(ctx, 'nb_photos_done',
       { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] },
@@ -216,7 +235,7 @@ export const setupNanoBanana = (bot) => {
 
   bot.action('nb_edit_result', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const uid = ctx.from.id;
+    const uid  = ctx.from.id;
     const last = await getLastGen(uid);
     if (!last?.resultUrl) { await ctx.reply('❌ Нет результата.'); return; }
     await redis.set(`nb:${uid}:model`,  last.model, 'EX', 600);
@@ -237,11 +256,30 @@ export const setupNanoBanana = (bot) => {
   bot.on('photo', async (ctx, next) => {
     const uid = ctx.from.id;
     if (await redis.get(`nb:${uid}:state`) !== 'await_photo') return next();
-    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    const photo  = ctx.message.photo[ctx.message.photo.length - 1];
     const fileUrl = await ctx.telegram.getFileLink(photo.file_id);
-    const count = await addPhotoUrl(uid, fileUrl.href);
+    const count  = await addPhotoUrl(uid, fileUrl.href);
+    const model  = await redis.get(`nb:${uid}:model`) || 'nb1';
+    // FLUX.2 Pro Edit: макс 3 фото
+    const maxPhotos = model === 'flux2e' ? 3 : 10;
     const { text } = await cms('nb_photo_received', { '{n}': String(count) });
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: (await nbPhotoNextKb(count)).reply_markup });
+    if (count >= maxPhotos) {
+      await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
+      const resol  = await redis.get(`nb:${uid}:resol`) || 'std';
+      const mode   = await redis.get(`nb:${uid}:mode`)  || 'img2img';
+      const backCb = model === 'gpt15e'
+        ? `nb_gpt_size_back:${resol}`
+        : model === 'flux2e'
+        ? 'nb_flux2_size_back'
+        : `nb_size_back:${model}:${mode}:${resol}`;
+      await ctx.reply(
+        `${text}\n\n⚠️ Достигнут лимит (${maxPhotos} фото). Напишите промт.`,
+        { parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] } }
+      );
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: (await nbPhotoNextKb(count)).reply_markup });
+    }
   });
 
   bot.on('text', async (ctx, next) => {
