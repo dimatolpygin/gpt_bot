@@ -1,53 +1,89 @@
+import { getContent } from '../../services/content.js';
 import { mainReplyKeyboard } from '../keyboards/main.js';
-import { gptMenu } from '../keyboards/gptMenu.js';
-import { sendContent } from '../../services/content.js';
+import { gptMenu }           from '../keyboards/gptMenu.js';
+import { nbModelKb }         from '../keyboards/imageMenuKb.js';
+import { vidModelKb }        from '../keyboards/videoMenuKb.js';
+
+const sendWithContent = async (ctx, key, kb, fallback = '') => {
+  const { text, image_url } = await getContent(key, fallback);
+  const extra = { parse_mode: 'HTML', reply_markup: kb.reply_markup };
+  if (image_url) {
+    await ctx.replyWithPhoto(image_url, { ...extra, caption: text });
+  } else {
+    await ctx.reply(text, extra);
+  }
+};
 
 export const setupStart = (bot) => {
-  bot.start(async (ctx) => {
-    await sendContent(ctx, 'main_menu', { reply_markup: mainReplyKeyboard().reply_markup });
+
+  // /start
+  bot.command('start', async (ctx) => {
+    const { text, image_url } = await getContent('main_menu', '👋 Привет! Выберите раздел:');
+    const extra = { reply_markup: mainReplyKeyboard().reply_markup };
+    if (image_url) {
+      await ctx.replyWithPhoto(image_url, { ...extra, caption: text, parse_mode: 'HTML' });
+    } else {
+      await ctx.reply(text, { ...extra, parse_mode: 'HTML' });
+    }
   });
 
-  bot.command('menu', async (ctx) => {
-    await sendContent(ctx, 'main_menu', { reply_markup: mainReplyKeyboard().reply_markup });
-  });
-
-  bot.command('new', async (ctx) => {
-    ctx.callbackQuery = null;
-    const { createNewDialog } = await import('./dialogs.js');
-    await createNewDialog(ctx);
-  });
-
-  bot.command('dialogs', async (ctx) => {
-    const { showDialogs } = await import('./dialogs.js');
-    await showDialogs(ctx, 0);
-  });
-
-  bot.command('help', async (ctx) => {
-    await ctx.reply(
-      `📖 *Помощь*\n\n` +
-      `*Команды:*\n` +
-      `/start — Запуск / приветствие\n` +
-      `/menu — Главное меню\n` +
-      `/new — Создать новый диалог\n` +
-      `/dialogs — Список диалогов\n\n` +
-      `*Как работает:*\n` +
-      `1. Открой или создай диалог\n` +
-      `2. Пиши сообщения — GPT ответит\n` +
-      `3. Переключайся между темами через кнопки`,
-      { parse_mode: 'Markdown' }
-    );
-  });
+  // ── ReplyKeyboard hears ────────────────────────────────────────────
 
   bot.hears('🤖 GPT', async (ctx) => {
     const kb = await gptMenu(ctx.from.id);
-    await sendContent(ctx, 'gpt_menu', { reply_markup: kb.reply_markup });
+    await sendWithContent(ctx, 'gpt_menu', kb, '🤖 GPT
+
+Выберите действие:');
   });
 
   bot.hears('🎨 Генерация изображений', async (ctx) => {
-    await sendContent(ctx, 'nb_menu', { reply_markup: mainReplyKeyboard().reply_markup });
+    await sendWithContent(ctx, 'nb_menu', nbModelKb(), '🎨 Генерация изображений
+
+Выберите модель:');
   });
 
   bot.hears('🎬 Создание видео', async (ctx) => {
-    await sendContent(ctx, 'vid_menu', { reply_markup: mainReplyKeyboard().reply_markup });
+    await sendWithContent(ctx, 'vid_menu', vidModelKb(), '🎬 Создание видео
+
+Выберите модель:');
+  });
+
+  // ── action main_menu (из инлайн кнопок других разделов) ───────────
+
+  bot.action('main_menu', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.editMessageText(
+      '👇 Используйте кнопки меню ниже'
+    ).catch(() => ctx.reply('👇 Используйте кнопки меню ниже'));
+  });
+
+  // ── action nb_menu / vid_menu (инлайн кнопки "Назад" из разделов) ─
+
+  bot.action('nb_menu', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const { text, image_url } = await getContent('nb_menu', '🎨 Генерация изображений
+
+Выберите модель:');
+    const extra = { parse_mode: 'HTML', reply_markup: nbModelKb().reply_markup };
+    if (image_url) {
+      await ctx.editMessageMedia({ type: 'photo', media: image_url, caption: text, parse_mode: 'HTML' }, extra)
+        .catch(() => ctx.reply(text, extra));
+    } else {
+      await ctx.editMessageText(text, extra).catch(() => ctx.reply(text, extra));
+    }
+  });
+
+  bot.action('vid_menu', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const { text, image_url } = await getContent('vid_menu', '🎬 Создание видео
+
+Выберите модель:');
+    const extra = { parse_mode: 'HTML', reply_markup: vidModelKb().reply_markup };
+    if (image_url) {
+      await ctx.editMessageMedia({ type: 'photo', media: image_url, caption: text, parse_mode: 'HTML' }, extra)
+        .catch(() => ctx.reply(text, extra));
+    } else {
+      await ctx.editMessageText(text, extra).catch(() => ctx.reply(text, extra));
+    }
   });
 };
