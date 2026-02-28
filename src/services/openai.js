@@ -73,15 +73,20 @@ const withRetry = async (fn, maxRetries = 3) => {
   }
 };
 
+// Возвращает массив messages с гарантированным system-сообщением первым.
+// chat.js уже инжектирует activePrompt, поэтому здесь только добавляем дефолт если system отсутствует.
+const buildPayload = (messages) => {
+  const hasSystem = messages.some(m => m.role === 'system');
+  if (hasSystem) return [...messages];
+  return [SYSTEM, ...messages];
+};
+
 // ── Streaming через Chat Completions API ─────────────────────────────────────
 export const streamChat = async (messages, modelId, onChunk, options = {}) => {
   try {
     const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const hasSystem = messages.length > 0 && messages[0].role === 'system';
-    const systemMessage = hasSystem ? messages[0] : { role: 'system', content: SYSTEM.content };
-    const restMessages = hasSystem ? messages.slice(1) : messages;
-    const payload = [systemMessage, ...restMessages];
+    const payload = buildPayload(messages);
 
     const params = {
       model,
@@ -113,10 +118,7 @@ export const webSearchChat = async (messages, modelId, onChunk, options = {}) =>
   try {
     const { thinkingLevel = 'none' } = options;
     const model = modelId || config.OPENAI_MODEL;
-    const hasSystem = messages.length > 0 && messages[0].role === 'system';
-    const systemMessage = hasSystem ? messages[0] : { role: 'system', content: SYSTEM.content };
-    const restMessages = hasSystem ? messages.slice(1) : messages;
-    const payload = [systemMessage, ...restMessages];
+    const payload = buildPayload(messages);
 
     const params = {
       model,
