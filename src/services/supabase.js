@@ -153,3 +153,36 @@ export const getActivePrompt = async (userId) => {
   console.log('[Prompt] getActivePrompt result for', userId, ':', data ? data.name : 'null');
   return data || null;
 };
+
+// ─── Шаблоны ───────────────────────────────────────────────────────
+
+export const getTemplates = async () => {
+  const { data, error } = await sb
+    .from('buttons')
+    .select('id, topic, topic_id, gender, emoji, name_batton, caption, "LINK"')
+    .eq('ACTIVE', true)
+    .order('topic_id', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(t => ({
+    id:      t.id,
+    topic:   t.topic   || 'Без категории',
+    topicid: t.topic_id || 0,
+    gender:  t.gender  || 'all',
+    emoji:   t.emoji   || '',
+    name:    t.name_batton || '',
+    caption: t.caption || '',
+    image:   t.LINK    || '',
+  }));
+};
+
+export const getTemplateById = async (id) => {
+  const { data, error } = await sb
+    .from('buttons')
+    .select('*')
+    .eq('id', id)
+    .eq('ACTIVE', true)
+    .single();
+  if (error) throw error;
+  return data;
+};

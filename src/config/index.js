@@ -8,6 +8,7 @@ export const config = {
   REDIS_URL:         process.env.REDIS_URL || 'redis://localhost:6379',
   PORT:              process.env.PORT || 3000,
   WEBAPP_URL:        process.env.WEBAPP_URL || 'http://localhost:3000',
+  APP_URL:           process.env.APP_URL || 'http://localhost:3000',
   DIALOGS_PER_PAGE:  5,
   MAX_HISTORY:       50,          // messages sent to OpenAI as context
   STREAM_THROTTLE:   800,         // ms between Telegram message edits

@@ -3,7 +3,7 @@ import crypto     from 'crypto';
 import path       from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config/index.js';
-import { getConvById, getMessages } from './services/supabase.js';
+import { getConvById, getMessages, getTemplates } from './services/supabase.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app       = express();
@@ -11,6 +11,22 @@ app.use(express.json());
 
 // Serve WebApp static
 app.use('/webapp', express.static(path.join(__dirname, 'webapp')));
+
+// Gallery WebApp
+app.get('/gallery', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'src', 'webapp', 'gallery.html'));
+});
+
+// Templates API
+app.get('/api/templates', async (req, res) => {
+  try {
+    const templates = await getTemplates();
+    res.json({ ok: true, data: templates });
+  } catch (err) {
+    console.error('[API /templates]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // ── Validate Telegram WebApp initData ────────────────────────────────────────
 function validateInitData(initData) {

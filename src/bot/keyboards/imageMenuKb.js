@@ -1,5 +1,6 @@
 import { Markup } from 'telegraf';
 import { getBtn } from '../../services/contentHelper.js';
+import { config } from '../../config/index.js';
 
 const encSize = (s) => s.replace(':', 'x');
 export const SIZES = ['1:1', '16:9', '9:16', '4:3', '3:4'];
@@ -12,14 +13,12 @@ export const MODEL_LABELS = {
   flux2e: 'FLUX.2 Pro Edit',
 };
 
-// GPT Image 1.5 Edit sizes (API: width*height)
 export const GPT15E_SIZES = [
   { label: '1:1  (1024x1024)', value: '1024*1024' },
   { label: '16:9 (1536x1024)', value: '1536*1024' },
   { label: '9:16 (1024x1536)', value: '1024*1536' },
 ];
 
-// FLUX.2 Pro Edit sizes (API: width*height, 256-1536)
 export const FLUX2E_SIZES = [
   { label: '1:1  (1024x1024)', value: '1024*1024' },
   { label: '16:9 (1344x768)',  value: '1344*768'  },
@@ -39,7 +38,10 @@ export const nbModelKb = async () => {
     ['btn_nb_model_flux2e', 'FLUX.2 Pro Edit'],
     ['btn_cancel',          'Отмена'],
   ]);
+  const galleryUrl = `${config.APP_URL}/gallery`;
   return Markup.inlineKeyboard([
+    // Кнопка галереи шаблонов (WebApp)
+    [Markup.button.webApp('📚 Посмотреть шаблоны', galleryUrl)],
     [Markup.button.callback(nb1,    'nb_model:nb1')],
     [Markup.button.callback(nb2,    'nb_model:nb2')],
     [Markup.button.callback(sd5,    'nb_model:sd5')],
@@ -88,7 +90,6 @@ export const nbSizeKb = async (model, mode, resol) => {
   ]);
 };
 
-// ── GPT Image 1.5 Edit: качество ─────────────────────────────────────
 export const nbGptQualityKb = async () => {
   const [low, med, high, back, cancel] = await b([
     ['btn_nb_gpt_quality_low',    'Low'],
@@ -105,7 +106,6 @@ export const nbGptQualityKb = async () => {
   ]);
 };
 
-// ── GPT Image 1.5 Edit: размер ────────────────────────────────────────
 export const nbGptSizeKb = async (quality) => {
   const [back, cancel] = await b([['btn_back', 'Назад'], ['btn_cancel', 'Отмена']]);
   return Markup.inlineKeyboard([
@@ -114,7 +114,6 @@ export const nbGptSizeKb = async (quality) => {
   ]);
 };
 
-// ── FLUX.2 Pro Edit: размер ───────────────────────────────────────────
 export const nbFlux2SizeKb = async () => {
   const [back, cancel] = await b([['btn_back', 'Назад'], ['btn_cancel', 'Отмена']]);
   return Markup.inlineKeyboard([
