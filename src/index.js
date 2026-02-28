@@ -6,6 +6,7 @@ import { SocksProxyAgent } from 'socks-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { config }        from './config/index.js';
 import { redis }         from './services/redis.js';
+import { setBot }        from './services/botInstance.js';
 import { upsertUser }    from './services/supabase.js';
 import { authMiddleware } from './bot/middleware/auth.js';
 import { setupHandlers } from './bot/handlers/index.js';
@@ -26,6 +27,7 @@ const bot = new Telegraf(config.BOT_TOKEN, {
   telegram: { agent: buildAgent() },
   handlerTimeout: 10 * 60 * 1000,
 });
+setBot(bot);
 
 // ── Middlewares ───────────────────────────────────────────────────────
 bot.use(authMiddleware);

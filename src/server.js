@@ -3,7 +3,9 @@ import crypto     from 'crypto';
 import path       from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config/index.js';
-import { getConvById, getMessages, getTemplates } from './services/supabase.js';
+import { redis } from './services/redis.js';
+import { getBot } from './services/botInstance.js';
+import { getConvById, getMessages, getTemplates, getTemplateById } from './services/supabase.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app       = express();
@@ -24,6 +26,51 @@ app.get('/api/templates', async (req, res) => {
     res.json({ ok: true, data: templates });
   } catch (err) {
     console.error('[API /templates]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Template selection from Gallery WebApp
+app.post('/api/template-select', async (req, res) => {
+  const { templateId, initData } = req.body;
+  const user = validateInitData(initData);
+  if (!user) return res.status(403).json({ ok: false, error: 'Invalid auth' });
+  const uid = user.id;
+
+  try {
+    const tpl = await getTemplateById(templateId);
+    if (!tpl) return res.status(404).json({ ok: false, error: 'Template not found' });
+
+    const nbKeys = ['state','model','mode','resol','size','photos','template_mode','template_prompt','template_name'];
+    for (const k of nbKeys) await redis.del(`nb:${uid}:${k}`);
+
+    await redis.set(`nb:${uid}:template_prompt`, tpl.promt        || '', 'EX', 3600);
+    await redis.set(`nb:${uid}:template_name`,   tpl.name_batton  || '', 'EX', 3600);
+    await redis.set(`nb:${uid}:template_mode`,   'template',           'EX', 3600);
+    await redis.set(`nb:${uid}:mode`,            'img2img',            'EX', 600);
+    await redis.set(`nb:${uid}:state`,           'await_photo',        'EX', 600);
+
+    const bot = getBot();
+    const lines = [
+      `✅ Шаблон: <b>${tpl.name_batton}</b>`,
+      tpl.caption ? `<i>${tpl.caption}</i>` : null,
+      '',
+      '📸 Отправь своё фото для создания образа:',
+    ].filter(l => l !== null);
+    const caption = lines.join('\n');
+    const kb = { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'nb_cancel' }]] };
+    const msgOpts = { caption, parse_mode: 'HTML', reply_markup: kb };
+
+    if (tpl.LINK) {
+      await bot.telegram.sendPhoto(uid, tpl.LINK, msgOpts)
+        .catch(() => bot.telegram.sendMessage(uid, caption, { parse_mode: 'HTML', reply_markup: kb }));
+    } else {
+      await bot.telegram.sendMessage(uid, caption, { parse_mode: 'HTML', reply_markup: kb });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[POST /api/template-select]', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

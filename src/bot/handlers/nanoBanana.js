@@ -14,7 +14,6 @@ import {
   nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
-import { getTemplateById } from '../../services/supabase.js';
 
 const TG_MAX = 9 * 1024 * 1024;
 const decSize     = (s) => s.replace('x', ':');
@@ -85,45 +84,6 @@ const generateFromTemplate = async (ctx, uid, extraSize) => {
 };
 
 export const setupNanoBanana = (bot) => {
-
-  // ── WebApp: выбор шаблона из галереи ─────────────────────────────
-  // ПОТОК: выбрал шаблон → превью + "отправь своё фото" → фото → модель → размер → генерация
-  bot.on('web_app_data', async (ctx) => {
-    const uid = ctx.from.id;
-    let data;
-    try { data = JSON.parse(ctx.message.web_app_data.data); } catch { return; }
-    if (data.action !== 'template_select') return;
-
-    try {
-      const tpl = await getTemplateById(data.templateId);
-      if (!tpl) { await ctx.reply('❌ Шаблон не найден.'); return; }
-
-      await cleanState(uid);
-      await redis.set(`nb:${uid}:template_prompt`, tpl.promt        || '', 'EX', 3600);
-      await redis.set(`nb:${uid}:template_name`,   tpl.name_batton  || '', 'EX', 3600);
-      await redis.set(`nb:${uid}:template_mode`,   'template',           'EX', 3600);
-      await redis.set(`nb:${uid}:mode`,            'img2img',            'EX', 600);
-      await redis.set(`nb:${uid}:state`,           'await_photo',        'EX', 600);
-
-      const caption = [
-        `✅ Шаблон: <b>${tpl.name_batton}</b>`,
-        tpl.caption ? `<i>${tpl.caption}</i>` : '',
-        '',
-        '📸 Отправь своё фото для создания образа:',
-      ].filter(Boolean).join('\n');
-
-      const kb = { inline_keyboard: [cancelRow] };
-      if (tpl.LINK) {
-        await ctx.replyWithPhoto(tpl.LINK, { caption, parse_mode: 'HTML', reply_markup: kb })
-          .catch(() => ctx.reply(caption, { parse_mode: 'HTML', reply_markup: kb }));
-      } else {
-        await ctx.reply(caption, { parse_mode: 'HTML', reply_markup: kb });
-      }
-    } catch (err) {
-      console.error('[web_app_data]', err.message);
-      await ctx.reply('❌ Ошибка при выборе шаблона.');
-    }
-  });
 
   // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e|flux2e)$/, async (ctx) => {

@@ -7,18 +7,13 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--tg-theme-bg-color, #ffffff);
-      color: var(--tg-theme-text-color, #000000);
-      overflow-x: hidden;
-    }
-    .header { padding: 20px 16px 16px; position: sticky; top: 0; background: var(--tg-theme-bg-color, #ffffff); z-index: 100; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #000); overflow-x: hidden; }
+    .header { padding: 20px 16px 16px; position: sticky; top: 0; background: var(--tg-theme-bg-color, #fff); z-index: 100; }
     h1 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
     .tabs { display: flex; background: #f0f0f0; border-radius: 12px; padding: 4px; gap: 4px; }
     .tab { flex: 1; padding: 10px 16px; border: none; background: transparent; border-radius: 10px; font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.2s; color: #000; }
-    .tab.active { background: #2196F3; color: #ffffff; }
-    .content { padding: 0 0 20px 0; }
+    .tab.active { background: #2196F3; color: #fff; }
+    .content { padding: 0 0 20px; }
     .category { margin-bottom: 24px; }
     .category-title { font-size: 22px; font-weight: 700; padding: 16px 16px 12px; }
     .cards-container { display: flex; overflow-x: auto; gap: 10px; padding: 0 16px 8px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: thin; scrollbar-color: #c1c1c1 #f1f1f1; }
@@ -29,30 +24,30 @@
     .card-image-wrapper { position: relative; width: 155px; height: 205px; border-radius: 12px; overflow: hidden; background: #f0f0f0; margin-bottom: 6px; cursor: pointer; }
     .card-image { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s ease; }
     .card-image.loaded { opacity: 1; }
-    .image-placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #e0e0e0 0%, #f5f5f5 100%); }
-    .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .image-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg,#e0e0e0,#f5f5f5); }
+    .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top-color: #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; padding: 0 2px; }
-    .card-caption { font-size: 11px; color: var(--tg-theme-hint-color, #777); margin-bottom: 8px; padding: 0 2px; line-height: 1.3; height: 28px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-    .card-button { width: 100%; padding: 10px; background: #2196F3; color: #ffffff; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .card-caption { font-size: 11px; color: var(--tg-theme-hint-color,#777); margin-bottom: 8px; padding: 0 2px; line-height: 1.3; height: 28px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .card-button { width: 100%; padding: 10px; background: #2196F3; color: #fff; border: none; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .card-button:active { transform: scale(0.98); opacity: 0.8; }
-    .card-button:disabled { background: #9e9e9e; cursor: not-allowed; transform: none; opacity: 0.7; }
+    .card-button:disabled { background: #9e9e9e; cursor: not-allowed; transform: none; }
     .card-button.selected { background: #4CAF50; }
-    .loading { padding: 40px; text-align: center; font-size: 16px; color: var(--tg-theme-hint-color, #999); }
-    .image-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
+    .loading { padding: 40px; text-align: center; font-size: 16px; color: var(--tg-theme-hint-color,#999); }
+    .image-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
     .image-modal.active { display: flex; }
     .modal-image { max-width: 90%; max-height: 90%; object-fit: contain; border-radius: 12px; }
-    .modal-close { position: absolute; top: 20px; right: 20px; width: 40px; height: 40px; background: rgba(255,255,255,0.2); border: none; border-radius: 50%; color: #fff; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px); }
+    .modal-close { position: absolute; top: 20px; right: 20px; width: 40px; height: 40px; background: rgba(255,255,255,.2); border: none; border-radius: 50%; color: #fff; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px); }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>🎨 Шаблоны</h1>
     <div class="tabs">
-      <!-- data-filter совпадает с полем gender в таблице buttons: Ж / М / all -->
+      <!-- data-filter = значение поля gender в таблице buttons: Ж / М -->
       <button class="tab active" data-filter="Ж">Женские</button>
-      <button class="tab" data-filter="М">Мужские</button>
-      <button class="tab" data-filter="all">Все</button>
+      <button class="tab"        data-filter="М">Мужские</button>
+      <button class="tab"        data-filter="all">Все</button>
     </div>
   </div>
   <div id="content" class="content"><div class="loading">Загрузка...</div></div>
@@ -62,20 +57,19 @@
   </div>
   <script>
     const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    tg.ready(); tg.expand();
     if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
 
-    let allData = [];
-    let currentFilter = 'Ж';  // по умолчанию Женские (значение из БД)
+    let allData       = [];
+    let currentFilter = 'Ж';
     let imageObserver = null;
-    let isSelecting = false;   // guard от мульти-выбора
+    let isSelecting   = false;   // guard: только 1 выбор за сессию
 
-    const CACHE_KEY = 'gallery_tpl_v2';
+    const CACHE_KEY = 'gallery_tpl_v3';
     const CACHE_TTL = 5 * 60 * 1000;
 
-    function saveCache(d) { try { localStorage.setItem(CACHE_KEY, JSON.stringify({ d, t: Date.now() })); } catch(e) {} }
-    function loadCache() {
+    const saveCache = (d) => { try { localStorage.setItem(CACHE_KEY, JSON.stringify({ d, t: Date.now() })); } catch(e){} };
+    const loadCache = () => {
       try {
         const raw = localStorage.getItem(CACHE_KEY);
         if (!raw) return null;
@@ -83,7 +77,7 @@
         if (Date.now() - t > CACHE_TTL) { localStorage.removeItem(CACHE_KEY); return null; }
         return d;
       } catch(e) { return null; }
-    }
+    };
 
     function initObserver() {
       imageObserver = new IntersectionObserver(entries => {
@@ -92,8 +86,8 @@
           const img = e.target, src = img.dataset.src;
           if (!src) return;
           img.src = src;
-          img.onload = () => { img.classList.add('loaded'); const ph = img.parentElement.querySelector('.image-placeholder'); if (ph) ph.style.display = 'none'; };
-          img.onerror = () => { const ph = img.parentElement.querySelector('.image-placeholder'); if (ph) ph.innerHTML = '<span style="font-size:32px">🖼️</span>'; };
+          img.onload  = () => { img.classList.add('loaded'); const ph = img.parentElement.querySelector('.image-placeholder'); if (ph) ph.style.display='none'; };
+          img.onerror = () => { const ph = img.parentElement.querySelector('.image-placeholder'); if (ph) ph.innerHTML='<span style="font-size:32px">🖼️</span>'; };
           imageObserver.unobserve(img);
         });
       }, { rootMargin: '80px', threshold: 0.01 });
@@ -102,10 +96,10 @@
     function groupByTopic(items) {
       const g = {};
       items.forEach(item => {
-        if (!g[item.topic]) g[item.topic] = { topic: item.topic, topicid: item.topicid || 0, items: [] };
+        if (!g[item.topic]) g[item.topic] = { topic: item.topic, topicid: item.topicid||0, items: [] };
         g[item.topic].items.push(item);
       });
-      return Object.values(g).sort((a, b) => a.topicid - b.topicid);
+      return Object.values(g).sort((a,b) => a.topicid - b.topicid);
     }
 
     function initTabs() {
@@ -121,25 +115,17 @@
       });
     }
 
-    function openImageModal(src) {
-      document.getElementById('modalImage').src = src;
-      document.getElementById('imageModal').classList.add('active');
-      tg.HapticFeedback.impactOccurred('light');
-    }
-    function closeImageModal() { document.getElementById('imageModal').classList.remove('active'); }
-    document.getElementById('imageModal').addEventListener('click', e => { if (e.target.id === 'imageModal') closeImageModal(); });
+    const openImageModal = (src) => { document.getElementById('modalImage').src=src; document.getElementById('imageModal').classList.add('active'); tg.HapticFeedback.impactOccurred('light'); };
+    const closeImageModal = () => document.getElementById('imageModal').classList.remove('active');
+    document.getElementById('imageModal').addEventListener('click', e => { if (e.target.id==='imageModal') closeImageModal(); });
 
     function renderContent() {
       const container = document.getElementById('content');
-      // gender в БД: 'Ж', 'М' — фильтруем напрямую
-      const filtered = allData
+      const filtered  = allData
         .map(cat => currentFilter === 'all' ? cat : { ...cat, items: cat.items.filter(i => i.gender === currentFilter) })
         .filter(cat => cat.items && cat.items.length > 0);
 
-      if (filtered.length === 0) {
-        container.innerHTML = '<div class="loading">Шаблоны не найдены</div>';
-        return;
-      }
+      if (!filtered.length) { container.innerHTML='<div class="loading">Шаблоны не найдены</div>'; return; }
 
       container.innerHTML = filtered.map(cat => `
         <div class="category">
@@ -147,12 +133,12 @@
           <div class="cards-container">
             ${cat.items.map(item => `
               <div class="card">
-                <div class="card-image-wrapper" onclick="openImageModal('${item.image || ''}')">
+                <div class="card-image-wrapper" onclick="openImageModal('${item.image||''}')">
                   <div class="image-placeholder"><div class="spinner"></div></div>
-                  <img data-src="${item.image || ''}" alt="${item.name}" class="card-image lazy">
+                  <img data-src="${item.image||''}" alt="${item.name}" class="card-image lazy">
                 </div>
-                <div class="card-name">${item.emoji || ''} ${item.name}</div>
-                <div class="card-caption">${item.caption || ''}</div>
+                <div class="card-name">${item.emoji||''} ${item.name}</div>
+                <div class="card-caption">${item.caption||''}</div>
                 <button class="card-button" data-id="${item.id}" data-name="${encodeURIComponent(item.name)}">
                   Выбрать
                 </button>
@@ -164,52 +150,68 @@
 
       document.querySelectorAll('.card-button').forEach(btn => {
         btn.addEventListener('click', function() {
-          if (isSelecting) return;           // guard: только 1 выбор
+          if (isSelecting) return;
           isSelecting = true;
-
-          // Блокируем все кнопки
-          document.querySelectorAll('.card-button').forEach(b => { b.disabled = true; b.textContent = '—'; });
-
-          // Подсвечиваем выбранную
-          this.textContent = '✅ Выбрано';
-          this.classList.add('selected');
 
           const id   = parseInt(this.dataset.id);
           const name = decodeURIComponent(this.dataset.name);
+
+          // Блокируем все кнопки, показываем загрузку
+          document.querySelectorAll('.card-button').forEach(b => { b.disabled=true; b.textContent='—'; });
+          this.textContent = '⏳ ...';
+          const clickedBtn = this;
+
           tg.HapticFeedback.impactOccurred('medium');
 
-          // Отправляем данные и закрываем WebApp
-          tg.sendData(JSON.stringify({ action: 'template_select', templateId: id, name }));
+          // POST на сервер — сервер сохранит в Redis и отправит боту сообщение
+          fetch('/api/template-select', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ templateId: id, initData: tg.initData }),
+          })
+          .then(r => r.json())
+          .then(json => {
+            if (json.ok) {
+              clickedBtn.textContent = '✅ Выбрано';
+              clickedBtn.classList.add('selected');
+              setTimeout(() => tg.close(), 600);   // закрываем WebApp
+            } else {
+              resetButtons();
+              tg.showAlert('Ошибка: ' + (json.error || 'неизвестная'));
+            }
+          })
+          .catch(() => {
+            resetButtons();
+            tg.showAlert('Нет соединения с сервером. Попробуйте снова.');
+          });
         });
       });
 
       document.querySelectorAll('.lazy').forEach(img => imageObserver.observe(img));
-      setTimeout(() => window.scrollTo(0, 1), 100);
+      setTimeout(() => window.scrollTo(0,1), 100);
+    }
+
+    function resetButtons() {
+      isSelecting = false;
+      document.querySelectorAll('.card-button').forEach(b => { b.disabled=false; b.textContent='Выбрать'; b.classList.remove('selected'); });
     }
 
     async function fetchFresh() {
-      const res = await fetch('/api/templates');
+      const res  = await fetch('/api/templates');
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || 'API error');
+      if (!json.ok) throw new Error(json.error||'API error');
       return groupByTopic(json.data);
     }
 
     async function init() {
-      initObserver();
-      initTabs();
+      initObserver(); initTabs();
       const cached = loadCache();
       if (cached) {
-        allData = cached;
-        renderContent();
-        fetchFresh().then(d => { allData = d; saveCache(d); renderContent(); }).catch(() => {});
+        allData = cached; renderContent();
+        fetchFresh().then(d => { allData=d; saveCache(d); renderContent(); }).catch(()=>{});
       } else {
-        try {
-          allData = await fetchFresh();
-          saveCache(allData);
-          renderContent();
-        } catch(e) {
-          document.getElementById('content').innerHTML = '<div class="loading">Ошибка загрузки 😔<br><small>' + e.message + '</small></div>';
-        }
+        try { allData = await fetchFresh(); saveCache(allData); renderContent(); }
+        catch(e) { document.getElementById('content').innerHTML=`<div class="loading">Ошибка загрузки 😔<br><small>${e.message}</small></div>`; }
       }
     }
 
