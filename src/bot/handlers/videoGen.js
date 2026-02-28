@@ -24,7 +24,7 @@ const sendVideo = async (ctx, videoUrl, caption, kb) => {
   const mb  = (buf.length / 1024 / 1024).toFixed(1);
   if (buf.length > TG_VID_MAX) {
     await ctx.reply(
-      `${caption}\n\n������ ${mb} MB\n������ <a href="${videoUrl}">Скачать</a>`,
+      `${caption}\n\n📦 ${mb} MB\n🔗 <a href="${videoUrl}">Скачать</a>`,
       { parse_mode: 'HTML', reply_markup: kb.reply_markup, disable_web_page_preview: false }
     );
   } else {
@@ -45,12 +45,12 @@ export const setupVideoGen = (bot) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     await redis.set(`vid:${ctx.from.id}:model`, model, 'EX', 600);
-    await cmsEdit(ctx, 'vid_duration', vidDurationKb(model));
+    await cmsEdit(ctx, 'vid_duration', await vidDurationKb(model));
   });
 
   bot.action(/^vid_dur_back:(seedance1|seedance15|kling|hailuo)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await cmsEdit(ctx, 'vid_duration', vidDurationKb(ctx.match[1]));
+    await cmsEdit(ctx, 'vid_duration', await vidDurationKb(ctx.match[1]));
   });
 
   bot.action(/^vid_dur:(seedance1|seedance15|kling|hailuo):(\d+)$/, async (ctx) => {
@@ -58,8 +58,8 @@ export const setupVideoGen = (bot) => {
     const model = ctx.match[1], dur = ctx.match[2], uid = ctx.from.id;
     await redis.set(`vid:${uid}:dur`, dur, 'EX', 600);
     const cfg = MODELS[model];
-    if (cfg.aspects)       await cmsEdit(ctx, 'vid_aspect', vidAspectKb(model, dur));
-    else if (cfg.hasSound) await cmsEdit(ctx, 'vid_sound',  vidSoundKb(model, dur));
+    if (cfg.aspects)       await cmsEdit(ctx, 'vid_aspect',      await vidAspectKb(model, dur));
+    else if (cfg.hasSound) await cmsEdit(ctx, 'vid_sound',       await vidSoundKb(model, dur));
     else {
       await redis.set(`vid:${uid}:state`, 'await_photo', 'EX', 600);
       await cmsEdit(ctx, 'vid_await_photo', awaitPhotoKb(`vid_dur_back:${model}`));
@@ -68,7 +68,7 @@ export const setupVideoGen = (bot) => {
 
   bot.action(/^vid_aspect_back:(seedance1|seedance15):(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await cmsEdit(ctx, 'vid_aspect', vidAspectKb(ctx.match[1], ctx.match[2]));
+    await cmsEdit(ctx, 'vid_aspect', await vidAspectKb(ctx.match[1], ctx.match[2]));
   });
 
   bot.action(/^vid_aspect:(seedance1|seedance15):(\d+):([^:]+)$/, async (ctx) => {
@@ -77,7 +77,7 @@ export const setupVideoGen = (bot) => {
     const uid = ctx.from.id;
     await redis.set(`vid:${uid}:aspect`, aspect, 'EX', 600);
     if (MODELS[model].hasCamera) {
-      await cmsEdit(ctx, 'vid_camera', vidCameraKb(model, dur, encS(aspect)));
+      await cmsEdit(ctx, 'vid_camera', await vidCameraKb(model, dur, encS(aspect)));
     } else {
       await redis.set(`vid:${uid}:state`, 'await_photo', 'EX', 600);
       await cmsEdit(ctx, 'vid_await_photo', awaitPhotoKb(`vid_aspect_back:${model}:${dur}`));
@@ -132,7 +132,7 @@ export const setupVideoGen = (bot) => {
     await cleanState(uid);
     if (!photoUrl) { await ctx.reply('❌ Фото не найдено.'); return; }
     const cfg = MODELS[model];
-    const { text: wt } = await cms('vid_generating', {}, '������ Генерирую...');
+    const { text: wt } = await cms('vid_generating', {}, '🎬 Генерирую...');
     const waitMsg = await ctx.reply(`${wt}\n${cfg.label}\n⏳ ~1-3 мин`, { parse_mode: 'HTML' });
     try {
       let videoUrl;
@@ -140,9 +140,9 @@ export const setupVideoGen = (bot) => {
       else if (model === 'seedance15') videoUrl = await seedance15SpicyI2V(photoUrl, prompt, dur, aspect);
       else if (model === 'kling')      videoUrl = await klingI2V(photoUrl, prompt, dur, sound === 'yes');
       else if (model === 'hailuo')     videoUrl = await hailuoI2V(photoUrl, prompt, dur);
-      const cap = `������ <b>${cfg.label}</b>\n⏱ ${dur} сек${aspect ? ' · ' + aspect : ''}\n<i>${prompt ? prompt.slice(0,150) : 'без промпта'}</i>`;
+      const cap = `🎬 <b>${cfg.label}</b>\n⏱ ${dur} сек${aspect ? ' · ' + aspect : ''}\n<i>${prompt ? prompt.slice(0,150) : 'без промпта'}</i>`;
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
-      await sendVideo(ctx, videoUrl, cap, vidResultKb());
+      await sendVideo(ctx, videoUrl, cap, await vidResultKb());
     } catch (err) {
       console.error('[VideoGen]', err.message);
       await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null,

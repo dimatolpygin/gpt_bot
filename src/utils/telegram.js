@@ -22,6 +22,9 @@ export async function safeEdit(ctx, messageId, text, extra = {}) {
         stripMarkdown(text),
         { ...extra, parse_mode: undefined }
       ).catch(() => {});
+    } else if (isNoText(err)) {
+      // Сообщение — фото/медиа, текста нет → отправляем новым сообщением
+      await safeReply(ctx, text, extra).catch(() => {});
     } else if (!isNotModified(err)) {
       throw err;
     }
@@ -79,6 +82,10 @@ const isParseError = (err) =>
 const isNotModified = (err) =>
   err?.message?.includes('message is not modified')
   || err?.description?.includes('message is not modified');
+
+const isNoText = (err) =>
+  err?.message?.includes('there is no text in the message')
+  || err?.description?.includes('there is no text in the message');
 
 export function stripMarkdown(text) {
   return text

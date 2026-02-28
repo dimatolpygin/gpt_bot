@@ -47,12 +47,12 @@ export const setupStart = (bot) => {
 
   // ReplyKeyboard — кнопка Генерация изображений
   bot.hears('🎨 Генерация изображений', async (ctx) => {
-    await sendWithContent(ctx, 'nb_menu', nbModelKb());
+    await sendWithContent(ctx, 'nb_menu', await nbModelKb());
   });
 
   // ReplyKeyboard — кнопка Создание видео
   bot.hears('🎬 Создание видео', async (ctx) => {
-    await sendWithContent(ctx, 'vid_menu', vidModelKb());
+    await sendWithContent(ctx, 'vid_menu', await vidModelKb());
   });
 
   // action main_menu
@@ -65,12 +65,12 @@ export const setupStart = (bot) => {
   // action nb_menu
   bot.action('nb_menu', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await editWithContent(ctx, 'nb_menu', nbModelKb());
+    await editWithContent(ctx, 'nb_menu', await nbModelKb());
   });
 
   // action vid_menu
   bot.action('vid_menu', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await editWithContent(ctx, 'vid_menu', vidModelKb());
+    await editWithContent(ctx, 'vid_menu', await vidModelKb());
   });
 };

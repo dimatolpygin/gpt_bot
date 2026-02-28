@@ -56,7 +56,7 @@ const prepareForTg = async (buf) => {
 const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) => {
   const ml = MODEL_LABELS[model];
   const rl = model === 'nb2' ? ` · ${resol}` : '';
-  const { text: wt } = await cms('nb_generating', {}, '������ Генерирую...');
+  const { text: wt } = await cms('nb_generating', {}, '🎨 Генерирую...');
   const waitMsg = await ctx.reply(`${wt}\n${ml}${rl} · ${size}`, { parse_mode: 'HTML' });
   try {
     let imageUrl;
@@ -74,12 +74,12 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
     const orig = await downloadImage(imageUrl);
     const sizeMb = (orig.length / 1024 / 1024).toFixed(1);
     const { buffer: buf, compressed } = await prepareForTg(orig);
-    const note = compressed ? `\n\n������ <a href="${imageUrl}">Оригинал (${sizeMb} MB)</a>` : '';
+    const note = compressed ? `\n\n🔗 <a href="${imageUrl}">Оригинал (${sizeMb} MB)</a>` : '';
     await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
     await ctx.replyWithPhoto(
       { source: buf, filename: `result.${compressed ? 'jpg' : 'png'}` },
-      { caption: `������ <b>${ml}</b>${rl} · ${size}\n<i>${prompt.slice(0,180)}</i>${note}`,
-        parse_mode: 'HTML', reply_markup: nbResultKb().reply_markup }
+      { caption: `🎨 <b>${ml}</b>${rl} · ${size}\n<i>${prompt.slice(0,180)}</i>${note}`,
+        parse_mode: 'HTML', reply_markup: (await nbResultKb()).reply_markup }
     );
   } catch (err) {
     console.error('[NanoBanana]', err.message);
@@ -94,27 +94,27 @@ export const setupNanoBanana = (bot) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     await redis.set(`nb:${ctx.from.id}:model`, model, 'EX', 600);
-    await cmsEdit(ctx, 'nb_mode', nbModeKb(model));
+    await cmsEdit(ctx, 'nb_mode', await nbModeKb(model));
   });
 
   bot.action(/^nb_mode:(nb1|nb2|sd5):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2];
     await redis.set(`nb:${ctx.from.id}:mode`, mode, 'EX', 600);
-    if (model === 'nb2') await cmsEdit(ctx, 'nb_quality', nbResolKb(model, mode));
-    else await cmsEdit(ctx, 'nb_size', nbSizeKb(model, mode, 'std'));
+    if (model === 'nb2') await cmsEdit(ctx, 'nb_quality', await nbResolKb(model, mode));
+    else await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, 'std'));
   });
 
   bot.action(/^nb_resol_back:(nb2):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    await cmsEdit(ctx, 'nb_quality', nbResolKb(ctx.match[1], ctx.match[2]));
+    await cmsEdit(ctx, 'nb_quality', await nbResolKb(ctx.match[1], ctx.match[2]));
   });
 
   bot.action(/^nb_resol:(nb2):(txt2img|img2img):(1k|2k|4k)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2], resol = ctx.match[3];
     await redis.set(`nb:${ctx.from.id}:resol`, resol, 'EX', 600);
-    await cmsEdit(ctx, 'nb_size', nbSizeKb(model, mode, resol));
+    await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, resol));
   });
 
   bot.action(/^nb_size:(nb1|nb2|sd5):(txt2img|img2img):([^:]+):(.+)$/, async (ctx) => {
@@ -138,7 +138,7 @@ export const setupNanoBanana = (bot) => {
   bot.action(/^nb_size_back:(nb1|nb2|sd5):(txt2img|img2img):([^:]+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await redis.del(`nb:${ctx.from.id}:state`);
-    await cmsEdit(ctx, 'nb_size', nbSizeKb(ctx.match[1], ctx.match[2], ctx.match[3]));
+    await cmsEdit(ctx, 'nb_size', await nbSizeKb(ctx.match[1], ctx.match[2], ctx.match[3]));
   });
 
   bot.action('nb_photos_done', async (ctx) => {
@@ -155,7 +155,7 @@ export const setupNanoBanana = (bot) => {
   });
 
   bot.action('nb_repeat', async (ctx) => {
-    await ctx.answerCbQuery('������ Повторяю...').catch(() => {});
+    await ctx.answerCbQuery('🔄 Повторяю...').catch(() => {});
     const last = await getLastGen(ctx.from.id);
     if (!last) { await ctx.reply('❌ Нет сохранённой генерации.'); return; }
     await generate(ctx, { model: last.model, mode: last.mode, size: last.size,
@@ -189,7 +189,7 @@ export const setupNanoBanana = (bot) => {
     const fileUrl = await ctx.telegram.getFileLink(photo.file_id);
     const count = await addPhotoUrl(uid, fileUrl.href);
     const { text } = await cms('nb_photo_received', { '{n}': String(count) });
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: nbPhotoNextKb(count).reply_markup });
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: (await nbPhotoNextKb(count)).reply_markup });
   });
 
   bot.on('text', async (ctx, next) => {

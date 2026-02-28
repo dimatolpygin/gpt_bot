@@ -4,6 +4,14 @@ import {
   getUserPrompts, addUserPrompt, setActivePrompt, deleteUserPrompt,
 } from '../../services/supabase.js';
 
+const safeEdit = async (ctx, text, extra) => {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch {
+    await ctx.reply(text, extra);
+  }
+};
+
 const buildNoPromptsButtons = () => Markup.inlineKeyboard([
   [{ text: '➕ Добавить промт', callback_data: 'prompt_add' }],
   [{ text: '◀️ Назад', callback_data: 'main_menu' }],
@@ -15,14 +23,10 @@ export const showPromptsList = async (ctx) => {
 
   if (prompts.length === 0) {
     const text = '📚 <b>Системные промты</b>\n\nНет сохранённых промтов.\nНажмите кнопку ниже чтобы добавить:';
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, {
-        parse_mode: 'HTML',
-        reply_markup: buildNoPromptsButtons().reply_markup,
-      }).catch(() => ctx.reply(text, { parse_mode: 'HTML', reply_markup: buildNoPromptsButtons().reply_markup }));
-    } else {
-      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: buildNoPromptsButtons().reply_markup });
-    }
+    await safeEdit(ctx, text, {
+      parse_mode: 'HTML',
+      reply_markup: buildNoPromptsButtons().reply_markup,
+    });
     return;
   }
 
@@ -47,17 +51,10 @@ export const showPromptsList = async (ctx) => {
   ]);
 
   const text = '📚 <b>Системные промты</b>\n\nВыберите активный промт (✅ — текущий):\n👁 — просмотреть содержание';
-  try {
-    await ctx.editMessageText(text, {
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: buttons },
-    });
-  } catch (err) {
-    if (!err?.description?.includes('message to edit not found')) {
-      throw err;
-    }
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } });
-  }
+  await safeEdit(ctx, text, {
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: buttons },
+  });
 };
 
 export const showPromptView = async (ctx, promptId) => {
@@ -76,12 +73,12 @@ export const showPromptView = async (ctx, promptId) => {
     `${status}\n\n` +
     `<blockquote>${prompt.content}</blockquote>`;
 
-  await ctx.editMessageText(text, {
+  await safeEdit(ctx, text, {
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [[{ text: '◀️ Назад к промтам', callback_data: 'prompts' }]],
     },
-  }).catch(() => {});
+  });
 };
 
 export const showDeleteMode = async (ctx) => {
@@ -93,7 +90,7 @@ export const showDeleteMode = async (ctx) => {
   }]));
   buttons.push([{ text: '◀️ Назад', callback_data: 'prompts' }]);
 
-  await ctx.editMessageText('🗑 <b>Выберите промт для удаления:</b>', {
+  await safeEdit(ctx, '🗑 <b>Выберите промт для удаления:</b>', {
     parse_mode: 'HTML',
     reply_markup: { inline_keyboard: buttons },
   });
@@ -102,7 +99,8 @@ export const showDeleteMode = async (ctx) => {
 export const beginPromptCreation = async (ctx) => {
   const userId = ctx.from.id;
   await redis.set(`prompt_add_state:${userId}`, '1', 'EX', 300);
-  await ctx.editMessageText(
+  await safeEdit(
+    ctx,
     '📝 Отправьте промт в формате:\n\n<code>Название | Текст системного промта</code>\n\n' +
     'Пример:\n<code>Помощник программиста | Ты опытный разработчик Node.js. Отвечай кратко и с примерами кода.</code>',
     {

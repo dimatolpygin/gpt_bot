@@ -21,6 +21,14 @@ const safeAnswerCbQuery = async (ctx, text, extra) => {
   } catch (_) {}
 };
 
+const safeEditOrReply = async (ctx, text, extra) => {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch {
+    await ctx.reply(text, extra).catch(() => {});
+  }
+};
+
 export const setupCallbacks = (bot) => {
 
   // ── Dialog list (paginated) ───────────────────────────────────────
@@ -94,19 +102,19 @@ export const setupCallbacks = (bot) => {
     await safeAnswerCbQuery(ctx);
     const convId = parseInt(ctx.match[1]);
     await redis.set(`u:${ctx.from.id}:rename`, convId, 'EX', 120);
-    await ctx.editMessageText(
+    await safeEditOrReply(ctx,
       '✏️ *Переименование*\n\nНапишите новое название одним сообщением:',
       { parse_mode: 'Markdown' }
-    ).catch(() => {});
+    );
   });
 
   bot.action('model_menu', async (ctx) => {
     await safeAnswerCbQuery(ctx);
     const currentModel = await getUserModel(ctx.from.id);
-    await ctx.editMessageText(
+    await safeEditOrReply(ctx,
       `🧠 *Выбор модели GPT*\n\nТекущая: \`${currentModel}\``,
       { parse_mode: 'Markdown', ...modelsKb(currentModel) }
-    ).catch(() => {});
+    );
   });
 
   bot.action(/^set_model:(.+)$/, async (ctx) => {
@@ -120,10 +128,10 @@ export const setupCallbacks = (bot) => {
     await safeAnswerCbQuery(ctx, `✅ Модель: ${model}`);
     await setUserModel(ctx.from.id, model);
 
-    await ctx.editMessageText(
+    await safeEditOrReply(ctx,
       `🧠 *Выбор модели GPT*\n\nТекущая: \`${model}\``,
       { parse_mode: 'Markdown', ...modelsKb(model) }
-    ).catch(() => {});
+    );
   });
 
   // ── Main menu ─────────────────────────────────────────────────────
@@ -144,7 +152,7 @@ export const setupCallbacks = (bot) => {
     }
     await setThinkingLevel(userId, next);
 
-    await ctx.editMessageText(
+    await safeEditOrReply(ctx,
       `🧠 Режим мышления: ${next}\n\n` +
       `none — без размышлений (быстро)\n` +
       `low — лёгкие рассуждения\n` +
@@ -152,16 +160,16 @@ export const setupCallbacks = (bot) => {
       `high — глубокий анализ\n` +
       `xhigh — максимум (медленно, дорого)`,
       { parse_mode: 'Markdown', reply_markup: mainReplyKeyboard().reply_markup }
-    ).catch(() => {});
+    );
   });
 
   // ── Delete — ask confirmation ─────────────────────────────────────
   bot.action(/^del_ask:(\d+)$/, async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    await ctx.editMessageText(
+    await safeEditOrReply(ctx,
       '⚠️ *Удалить диалог?*\nВсё содержимое будет удалено без возможности восстановления.',
       { parse_mode: 'Markdown', ...delConfirmKb(parseInt(ctx.match[1])) }
-    ).catch(() => {});
+    );
   });
 
   // ── Delete — confirmed ────────────────────────────────────────────
