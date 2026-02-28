@@ -4,6 +4,7 @@ export const config = {
   OPENAI_MODEL:      process.env.OPENAI_MODEL || 'gpt-4o',
   SUPABASE_URL:      process.env.SUPABASE_URL,
   SUPABASE_KEY:      process.env.SUPABASE_KEY,
+  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY,
   REDIS_URL:         process.env.REDIS_URL || 'redis://localhost:6379',
   PORT:              process.env.PORT || 3000,
   WEBAPP_URL:        process.env.WEBAPP_URL || 'http://localhost:3000',

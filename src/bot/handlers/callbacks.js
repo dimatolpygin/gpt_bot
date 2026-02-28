@@ -9,8 +9,9 @@ import {
   setThinkingLevel, nextThinkingLevel,
 } from '../../services/redis.js';
 import { chatKb, delConfirmKb }  from '../keyboards/dialogs.js';
-import { mainMenu }      from '../keyboards/main.js';
+import { mainMenu, mainReplyKeyboard } from '../keyboards/main.js';
 import { gptMenu }      from '../keyboards/gptMenu.js';
+import { sendContent }  from '../../services/content.js';
 import { modelsKb, MODELS, supportsWS, supportsReasoning } from '../keyboards/models.js';
 import { showPromptsList, showPromptView, showDeleteMode, beginPromptCreation } from './prompts.js';
 
@@ -36,12 +37,7 @@ export const setupCallbacks = (bot) => {
   bot.action('menu_gpt', async (ctx) => {
     await safeAnswerCbQuery(ctx);
     const kb = await gptMenu(ctx.from.id);
-    await ctx.editMessageText(
-      '🤖 <b>GPT</b>\n\nВыберите действие:',
-      { parse_mode: 'HTML', reply_markup: kb.reply_markup }
-    ).catch(() =>
-      ctx.reply('🤖 <b>GPT</b>\n\nВыберите действие:', { parse_mode: 'HTML', reply_markup: kb.reply_markup })
-    );
+    await sendContent(ctx, 'gpt_menu', { reply_markup: kb.reply_markup });
   });
 
   bot.action('prompt_add', async (ctx) => {
@@ -133,10 +129,7 @@ export const setupCallbacks = (bot) => {
   // ── Main menu ─────────────────────────────────────────────────────
   bot.action('main_menu', async (ctx) => {
     await safeAnswerCbQuery(ctx);
-    const menu = await mainMenu();
-    await ctx.editMessageText('🏠 *Главное меню*', {
-      parse_mode: 'Markdown', ...menu,
-    }).catch(() => {});
+    await sendContent(ctx, 'main_menu', { reply_markup: mainReplyKeyboard().reply_markup });
   });
 
   bot.action('toggle_thinking', async (ctx) => {
@@ -151,7 +144,6 @@ export const setupCallbacks = (bot) => {
     }
     await setThinkingLevel(userId, next);
 
-    const menu = await mainMenu();
     await ctx.editMessageText(
       `🧠 Режим мышления: ${next}\n\n` +
       `none — без размышлений (быстро)\n` +
@@ -159,7 +151,7 @@ export const setupCallbacks = (bot) => {
       `medium — стандарт\n` +
       `high — глубокий анализ\n` +
       `xhigh — максимум (медленно, дорого)`,
-      { parse_mode: 'Markdown', ...menu }
+      { parse_mode: 'Markdown', reply_markup: mainReplyKeyboard().reply_markup }
     ).catch(() => {});
   });
 
