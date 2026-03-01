@@ -1,4 +1,3 @@
-// Пример обработчика Reply-кнопки "Профиль"
 import { getBalance } from '../../services/tokens.js';
 import { getUserSettings } from '../../services/userSettings.js';
 import { getUserModel } from '../../services/redis.js';
@@ -41,4 +40,16 @@ export const setupProfile = (bot) => {
 
     await ctx.reply(text, { parse_mode: 'HTML', ...profileKb() });
   });
+
+  const stub = (msg) => async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.reply(msg);
+  };
+
+  bot.action('profile_img_model',   stub('Выбор модели фото ещё не реализован.'));
+  bot.action('profile_vid_model',   stub('Выбор модели видео ещё не реализован.'));
+  bot.action('profile_img_format',  stub('Выбор формата фото ещё не реализован.'));
+  bot.action('profile_img_quality', stub('Выбор качества фото ещё не реализован.'));
+  bot.action('profile_vid_dur',     stub('Выбор длительности видео ещё не реализован.'));
+  bot.action('profile_vid_aspect',  stub('Выбор формата видео ещё не реализован.'));
 };
