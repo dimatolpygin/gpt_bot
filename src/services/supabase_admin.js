@@ -298,9 +298,16 @@ export const adminBanUser = async ({ userId, reason = '', adminId }) => {
     .eq('user_id', userId)
     .eq('is_active', true);
 
+  const payload = {
+    user_id: userId,
+    reason,
+    is_active: true,
+  };
+  if (adminId) payload.banned_by = adminId;
+
   const { data, error } = await supabase
     .from('bot_bans')
-    .insert({ user_id: userId, reason, banned_by: adminId, is_active: true })
+    .insert(payload)
     .select()
     .single();
 

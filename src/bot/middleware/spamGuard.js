@@ -29,7 +29,7 @@ export const spamGuard = async (ctx, next) => {
 
   const existing = await isUserBanned(uid);
   if (!existing) {
-    await adminBanUser({ userId: uid, reason: `Автоблок за спам (${count} сообщений)`, adminId: 0 });
+    await adminBanUser({ userId: uid, reason: `Автоблок за спам (${count} сообщений)` });
   }
 
   await ctx.reply(`🚫 Вы заблокированы на ${nextPenalty} сек. за спам.`).catch(() => {});
