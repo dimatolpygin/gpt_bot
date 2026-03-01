@@ -187,3 +187,41 @@ export const getTemplateById = async (id) => {
   if (error) throw error;
   return data;
 };
+// ─── ДОБАВИТЬ В КОНЕЦ ФАЙЛА services/supabase.js ─────────────────────────────
+
+// ── Тарифы ───────────────────────────────────────────────────────────────────
+export const getTariffs = async () => {
+  const { data, error } = await sb
+    .from('bot_tariffs')
+    .select('id, name, description, tokens, stars, sort_order')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return data || [];
+};
+
+// ── Покупки ───────────────────────────────────────────────────────────────────
+export const savePurchase = async ({ user_id, tariff_id, tariff_name, tokens_credited, stars_paid, charge_id, payload }) => {
+  const { error } = await sb.from('bot_purchases').insert({
+    user_id,
+    tariff_id,
+    tariff_name,
+    tokens_credited,
+    stars_paid,
+    charge_id,
+    payload,
+    status: 'completed',
+  });
+  if (error) console.error('[Shop] savePurchase error:', error.message);
+};
+
+export const getPurchaseHistory = async (userId, limit = 10) => {
+  const { data, error } = await sb
+    .from('bot_purchases')
+    .select('tariff_name, tokens_credited, stars_paid, status, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+};
