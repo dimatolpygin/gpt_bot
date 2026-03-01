@@ -11,7 +11,7 @@ const defaults = {
 
 export const getUserSettings = async (userId) => {
   const { data } = await supabase
-    .from('user_settings')
+    .from('bot_user_settings')
     .select('*')
     .eq('user_id', userId)
     .single();
@@ -21,7 +21,7 @@ export const getUserSettings = async (userId) => {
 export const updateUserSettings = async (userId, patch) => {
   const payload = { user_id: userId, ...patch, updated_at: new Date().toISOString() };
   const { data } = await supabase
-    .from('user_settings')
+    .from('bot_user_settings')
     .upsert(payload, { onConflict: 'user_id' })
     .select()
     .single();
