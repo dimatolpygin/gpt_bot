@@ -6,6 +6,7 @@ const HEADERS = () => ({
   'Authorization': `Bearer ${config.WAVESPEED_API_KEY}`,
   'Content-Type': 'application/json',
 });
+const WAVESPEED_API_KEY = config.WAVESPEED_API_KEY;
 
 // ── Nano Banana 1 ─────────────────────────────────────────────────────────────
 export const nanoBananaTextToImage = async (prompt, aspectRatio = '1:1') => {
@@ -157,6 +158,72 @@ export const hailuoI2V = async (imageUrl, prompt = '', duration = 6) => {
   const data = await res.json();
   if (!res.ok) throw new Error(data?.message || JSON.stringify(data));
   return pollResult(data?.data?.id, 60, 5000);
+};
+
+// ── OpenAI Sora 2 Image-to-Video ─────────────────────────────────────
+const WAVESPEED_BASE_URL = BASE;
+
+const soraSubmit = async ({ image, prompt, duration }) => {
+  const res = await fetch(`${WAVESPEED_BASE_URL}/openai/sora-2/image-to-video`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${WAVESPEED_API_KEY}`,
+    },
+    body: JSON.stringify({ image, prompt, duration }),
+  });
+  const data = await res.json();
+  if (!res.ok || (data?.code && data.code !== 200)) {
+    console.error('[WaveSpeed Sora submit] error:', data);
+    throw new Error(data?.message || 'WaveSpeed Sora submit failed');
+  }
+  return data?.data?.id || data?.data?.task_id || data?.id;
+};
+
+const soraPoll = async (id) => {
+  const url = `${WAVESPEED_BASE_URL}/predictions/${id}/result`;
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${WAVESPEED_API_KEY}` },
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    console.error('[WaveSpeed Sora poll] error:', data);
+    throw new Error(data?.message || 'WaveSpeed Sora poll failed');
+  }
+  return data;
+};
+
+export const soraI2V = async (imageUrl, prompt, durationSec = 4) => {
+  if (!WAVESPEED_API_KEY) {
+    throw new Error('WAVESPEED_API_KEY is not set');
+  }
+
+  const allowed = [4, 8, 12];
+  const dur = allowed.includes(Number(durationSec)) ? Number(durationSec) : 4;
+
+  const taskId = await soraSubmit({ image: imageUrl, prompt, duration: dur });
+  if (!taskId) throw new Error('WaveSpeed Sora: empty task id');
+
+  const started = Date.now();
+  const timeoutMs = 5 * 60 * 1000;
+
+  while (true) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error('WaveSpeed Sora: timeout');
+    }
+    await new Promise(r => setTimeout(r, 5000));
+    const data = await soraPoll(taskId);
+    const status = data?.data?.status || data?.status;
+    if (status === 'completed') {
+      const outputs = data?.data?.outputs || data?.outputs || [];
+      if (!outputs.length) throw new Error('WaveSpeed Sora: empty outputs');
+      return outputs[0];
+    }
+    if (status === 'failed') {
+      const errMsg = data?.data?.error || data?.error || 'WaveSpeed Sora failed';
+      throw new Error(errMsg);
+    }
+  }
 };
 
 // ── Polling ───────────────────────────────────────────────────────────────────

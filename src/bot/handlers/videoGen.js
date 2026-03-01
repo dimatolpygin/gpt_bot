@@ -2,7 +2,7 @@ import { Markup } from 'telegraf';
 import { redis } from '../../services/redis.js';
 import fetch from 'node-fetch';
 import { cmsEdit, cmsSend, cms } from '../../services/contentHelper.js';
-import { seedanceI2V, seedance15SpicyI2V, klingI2V, hailuoI2V } from '../../services/wavespeed.js';
+import { seedanceI2V, seedance15SpicyI2V, klingI2V, hailuoI2V, soraI2V } from '../../services/wavespeed.js';
 import { spendTokens, notEnoughMsg, getPrice } from '../../services/tokens.js';
 import {
   vidModelKb, vidDurationKb, vidAspectKb,
@@ -45,19 +45,19 @@ const vidActionKey = (model, dur) => `vid_${model}_${dur}`;
 
 export const setupVideoGen = (bot) => {
 
-  bot.action(/^vid_model:(seedance1|seedance15|kling|hailuo)$/, async (ctx) => {
+  bot.action(/^vid_model:(seedance1|seedance15|kling|hailuo|sora)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1];
     await redis.set(`vid:${ctx.from.id}:model`, model, 'EX', 600);
     await cmsEdit(ctx, 'vid_duration', await vidDurationKb(model));
   });
 
-  bot.action(/^vid_dur_back:(seedance1|seedance15|kling|hailuo)$/, async (ctx) => {
+  bot.action(/^vid_dur_back:(seedance1|seedance15|kling|hailuo|sora)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cmsEdit(ctx, 'vid_duration', await vidDurationKb(ctx.match[1]));
   });
 
-  bot.action(/^vid_dur:(seedance1|seedance15|kling|hailuo):(\d+)$/, async (ctx) => {
+  bot.action(/^vid_dur:(seedance1|seedance15|kling|hailuo|sora):(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], dur = ctx.match[2], uid = ctx.from.id;
     await redis.set(`vid:${uid}:dur`, dur, 'EX', 600);
@@ -164,6 +164,7 @@ export const setupVideoGen = (bot) => {
       else if (model === 'seedance15') videoUrl = await seedance15SpicyI2V(photoUrl, prompt, dur, aspect);
       else if (model === 'kling')      videoUrl = await klingI2V(photoUrl, prompt, dur, sound === 'yes');
       else if (model === 'hailuo')     videoUrl = await hailuoI2V(photoUrl, prompt, dur);
+      else if (model === 'sora')       videoUrl = await soraI2V(photoUrl, prompt, dur);
       const cap = `🎬 <b>${cfg.label}</b>\n⏱ ${dur} сек${aspect ? ' · ' + aspect : ''}\n<i>${prompt ? prompt.slice(0,150) : 'без промпта'}</i>`;
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
       await sendVideo(ctx, videoUrl, cap, await vidResultKb());
