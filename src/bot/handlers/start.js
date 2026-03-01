@@ -3,6 +3,7 @@ import { mainReplyKeyboard } from '../keyboards/main.js';
 import { gptMenu }           from '../keyboards/gptMenu.js';
 import { nbModelKb }         from '../keyboards/imageMenuKb.js';
 import { vidModelKb }        from '../keyboards/videoMenuKb.js';
+import { initUserTokens, getBalance, formatBalance } from '../../services/tokens.js';
 
 const sendWithContent = async (ctx, key, kb, fallback = '') => {
   const { text, image_url } = await getContent(key, fallback);
@@ -30,12 +31,15 @@ export const setupStart = (bot) => {
 
   // /start
   bot.command('start', async (ctx) => {
+    await initUserTokens(ctx.from.id);
+    const balance = await getBalance(ctx.from.id);
     const { text, image_url } = await getContent('main_menu', '👋 Привет!');
+    const annotatedText = `${text}\n\n💰 Ваш баланс: ${formatBalance(balance)}`;
     const extra = { reply_markup: mainReplyKeyboard().reply_markup, parse_mode: 'HTML' };
     if (image_url) {
-      await ctx.replyWithPhoto(image_url, { ...extra, caption: text });
+      await ctx.replyWithPhoto(image_url, { ...extra, caption: annotatedText });
     } else {
-      await ctx.reply(text, extra);
+      await ctx.reply(annotatedText, extra);
     }
   });
 

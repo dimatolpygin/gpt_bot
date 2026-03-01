@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 
 const sb = createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
+export { sb as supabase };
 
 // ─── Users ───────────────────────────────────────────────────────────
 

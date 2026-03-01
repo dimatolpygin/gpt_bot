@@ -5,6 +5,7 @@ import {
 import {
   addMessage, getMessages,
   updateConvTitle,
+  getActivePrompt,
 } from '../../services/supabase.js';
 import { streamChat, webSearchChat, analyzePhoto, analyzeFile, codeInterpreterChat, needsCodeInterpreter, transcribeVoice, generateImage, openai } from '../../services/openai.js';
 import { chatKb } from '../keyboards/dialogs.js';
@@ -15,13 +16,22 @@ import { Markup, Input } from 'telegraf';
 import { safeEdit, safeSendLong, safeReply } from '../../utils/telegram.js';
 import { startThinkingAnimation, stopThinkingAnimation } from '../utils/thinkingAnimation.js';
 import { isImageRequest, detectImageSize, getSizeLabel } from '../utils/imageDetect.js';
-import { getActivePrompt } from '../../services/supabase.js';
 import { finishPromptCreation } from './prompts.js';
+import { spendTokens, notEnoughMsg } from '../../services/tokens.js';
 
 const CI_MODEL = 'gpt-4o';
 const WEBAPP_BASE = config.WEBAPP_URL.replace(/\/+$/, '');
 const buildWebAppUrl = (convId) =>
   `${WEBAPP_BASE}/webapp/index.html?convId=${convId}&api=${encodeURIComponent(WEBAPP_BASE)}`;
+const CHAT_KEY = (model) => `chat_${model}`;
+
+const sendSpendNote = async (ctx, tk) => {
+  if (!tk?.ok) return;
+  await ctx.reply(
+    `✅ Списано ${tk.spent} 🪙 за ${tk.label}\nБаланс: ${tk.balance} 🪙`,
+    { parse_mode: 'HTML' }
+  ).catch(() => {});
+};
 
 const buildFinalKb = (convId, wsEnabled = false) => {
   const baseKb = chatKb(convId, wsEnabled);
@@ -63,6 +73,11 @@ const processUserText = async (ctx, userText, waitMsg) => {
     getThinkingLevel(uid),
   ]);
   const safeModel = VALID_MODELS.includes(model) ? model : 'gpt-4o';
+  const tkChat = await spendTokens(uid, CHAT_KEY(safeModel));
+  if (!tkChat.ok) {
+    await safeEdit(ctx, waitMsg.message_id, notEnoughMsg(tkChat), { parse_mode: 'HTML' });
+    return;
+  }
 
   if (isImageRequest(messageText)) {
     const processingMsgId = waitMsg?.message_id;
@@ -220,6 +235,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
         );
       } else {
         await safeSendLong(ctx, finalText, waitMsg.message_id, finalKb);
+        await sendSpendNote(ctx, tkChat);
         for (const f of files) {
           await ctx.replyWithDocument(
             Input.fromBuffer(f.buffer, f.name),
@@ -244,6 +260,7 @@ const processUserText = async (ctx, userText, waitMsg) => {
         : await streamChat(openAiMsgs, safeModel, handleChunk, { thinkingLevel: thinkLevel });
       finalText = finalText || streamResult;
       await safeSendLong(ctx, finalText, waitMsg.message_id, finalKb);
+      await sendSpendNote(ctx, tkChat);
     }
 
     if (convId) {
@@ -299,6 +316,11 @@ export const setupChat = (bot) => {
       const fileLink = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
       const response = await fetch(fileLink.href);
       const buffer = Buffer.from(await response.arrayBuffer());
+      const tkVoice = await spendTokens(uid, 'transcribe');
+      if (!tkVoice.ok) {
+        await safeEdit(ctx, recognitionMsg.message_id, notEnoughMsg(tkVoice), { parse_mode: 'HTML' });
+        return;
+      }
       const transcription = (await transcribeVoice(buffer, { language: 'ru' })).trim();
       if (!transcription) {
         await safeEdit(ctx, recognitionMsg.message_id, '❌ Не удалось распознать речь.');
@@ -314,6 +336,41 @@ export const setupChat = (bot) => {
     } finally {
       await ctx.telegram.deleteMessage(ctx.chat.id, recognitionMsg.message_id).catch(() => {});
     }
+  });
+
+  bot.command('balance', async (ctx) => {
+    const uid = ctx.from.id;
+    const { initUserTokens, getBalance, getHistory, formatBalance } = await import('../../services/tokens.js');
+    await initUserTokens(uid);
+    const balance = await getBalance(uid);
+    const history = await getHistory(uid, 6);
+    const lines = history.map(tx => {
+      const sign = tx.amount > 0 ? '➕' : '➖';
+      const abs = Math.abs(tx.amount);
+      const date = new Date(tx.created_at).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit' });
+      return `${sign} <b>${abs} 🪙</b>  <i>${tx.description}</i>  <code>${date}</code>`;
+    });
+    await ctx.reply(
+      `💰 <b>Ваш баланс: ${formatBalance(balance)}</b>\n\n` +
+      (lines.length ? `📋 <b>Последние операции:</b>\n${lines.join('\n')}` : '📋 Операций пока нет.'),
+      { parse_mode: 'HTML' }
+    );
+  });
+
+  bot.command('grant', async (ctx) => {
+    const adminIds = (process.env.ALLOWED_USERS || '').split(',').map(Number);
+    if (!adminIds.includes(ctx.from.id)) return;
+    const parts = ctx.message.text.trim().split(/\s+/);
+    const targetId = parseInt(parts[1]);
+    const amount = parseInt(parts[2]);
+    if (!targetId || !amount || amount <= 0) {
+      await ctx.reply('Использование: /grant <user_id> <сумма>\nПример: /grant 123456789 500');
+      return;
+    }
+    const { creditTokens, formatBalance } = await import('../../services/tokens.js');
+    const result = await creditTokens(targetId, amount, '🎁 Пополнение администратором');
+    await ctx.reply(`✅ Начислено <b>${formatBalance(amount)}</b> пользователю <code>${targetId}</code>\nНовый баланс: <b>${formatBalance(result.balance)}</b>`, { parse_mode: 'HTML' });
+    await ctx.telegram.sendMessage(targetId, `💰 Вам начислено <b>${formatBalance(amount)}</b>!\nВаш баланс: <b>${formatBalance(result.balance)}</b>`, { parse_mode: 'HTML' }).catch(() => {});
   });
 
   bot.on('document', async (ctx) => {

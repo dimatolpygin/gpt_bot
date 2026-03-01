@@ -3,6 +3,7 @@ import { redis } from '../../services/redis.js';
 import fetch from 'node-fetch';
 import { cmsEdit, cmsSend, cms } from '../../services/contentHelper.js';
 import { seedanceI2V, seedance15SpicyI2V, klingI2V, hailuoI2V } from '../../services/wavespeed.js';
+import { spendTokens, notEnoughMsg } from '../../services/tokens.js';
 import {
   vidModelKb, vidDurationKb, vidAspectKb,
   vidCameraKb, vidSoundKb, vidResultKb,
@@ -131,6 +132,12 @@ export const setupVideoGen = (bot) => {
     const photoUrl  = await redis.get(`vid:${uid}:photo_url`);
     await cleanState(uid);
     if (!photoUrl) { await ctx.reply('❌ Фото не найдено.'); return; }
+    const vidKey = `vid_${model}_${dur}`;
+    const tkVid = await spendTokens(uid, vidKey);
+    if (!tkVid.ok) {
+      await ctx.reply(notEnoughMsg(tkVid), { parse_mode: 'HTML' });
+      return;
+    }
     const cfg = MODELS[model];
     const { text: wt } = await cms('vid_generating', {}, '🎬 Генерирую...');
     const waitMsg = await ctx.reply(`${wt}\n${cfg.label}\n⏳ ~1-3 мин`, { parse_mode: 'HTML' });
@@ -143,6 +150,12 @@ export const setupVideoGen = (bot) => {
       const cap = `🎬 <b>${cfg.label}</b>\n⏱ ${dur} сек${aspect ? ' · ' + aspect : ''}\n<i>${prompt ? prompt.slice(0,150) : 'без промпта'}</i>`;
       await ctx.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
       await sendVideo(ctx, videoUrl, cap, await vidResultKb());
+      if (tkVid.ok) {
+        await ctx.reply(
+          `✅ Списано ${tkVid.spent} 🪙 за ${tkVid.label}\nБаланс: ${tkVid.balance} 🪙`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+      }
     } catch (err) {
       console.error('[VideoGen]', err.message);
       await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null,

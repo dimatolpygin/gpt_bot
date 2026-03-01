@@ -4,6 +4,7 @@ const buildKeyboard = () =>
   Markup.keyboard([
     ['🤖 GPT'],
     ['🎨 Генерация изображений', '🎬 Создание видео'],
+    ['👤 Профиль'],
   ]).resize().persistent();
 
 export const mainReplyKeyboard = () => buildKeyboard();

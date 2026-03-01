@@ -14,7 +14,7 @@ import {
   nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
-import { getTemplateById } from '../../services/supabase.js';
+import { spendTokens, notEnoughMsg } from '../../services/tokens.js';
 
 const TG_MAX = 9 * 1024 * 1024;
 const decSize     = (s) => s.replace('x', ':');
@@ -26,6 +26,12 @@ const cleanState = async (uid) => {
   for (const k of ['state','model','mode','resol','size','photos',
                    'template_mode','template_prompt','template_name'])
     await redis.del(`nb:${uid}:${k}`);
+};
+
+const imgActionKey = (model, resol) => {
+  if (model === 'nb2')    return `img_nb2_${resol || '1k'}`;
+  if (model === 'gpt15e') return `img_gpt15e_${resol || 'medium'}`;
+  return `img_${model}`;
 };
 
 // Безопасная правка сообщения (текст ИЛИ подпись к фото)
@@ -55,6 +61,11 @@ const prepareForTg  = async (buf) => {
 };
 
 const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) => {
+  const tkImg = await spendTokens(ctx.from.id, imgActionKey(model, resol));
+  if (!tkImg.ok) {
+    await ctx.reply(notEnoughMsg(tkImg), { parse_mode: 'HTML' });
+    return;
+  }
   const ml = MODEL_LABELS[model];
   const rl = (model === 'nb2' || model === 'gpt15e') ? ` · ${resol}` : '';
   const { text: wt } = await cms('nb_generating', {}, '🎨 Генерирую...');
@@ -78,6 +89,12 @@ const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) =>
       { caption: `🎨 <b>${ml}</b>${rl} · ${size}\n<i>${prompt.slice(0,180)}</i>${note}`,
         parse_mode: 'HTML', reply_markup: (await nbResultKb()).reply_markup }
     );
+    if (tkImg.ok) {
+      await ctx.reply(
+        `✅ Списано ${tkImg.spent} 🪙 за ${tkImg.label}\nБаланс: ${tkImg.balance} 🪙`,
+        { parse_mode: 'HTML' }
+      ).catch(() => {});
+    }
   } catch (err) {
     console.error('[NanoBanana]', err.message);
     await ctx.telegram.editMessageText(ctx.chat.id, waitMsg.message_id, null, `❌ Ошибка: ${err.message}`).catch(() => {});
