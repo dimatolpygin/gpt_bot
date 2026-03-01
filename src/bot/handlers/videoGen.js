@@ -9,6 +9,7 @@ import {
   vidCameraKb, vidSoundKb, vidResultKb,
   MODELS, decS,
 } from '../keyboards/videoMenuKb.js';
+import { MENU_BUTTON_TEXTS } from '../keyboards/main.js';
 
 const TG_VID_MAX = 50 * 1024 * 1024;
 const encS = (s) => s.replace(':', 'x');
@@ -133,6 +134,13 @@ export const setupVideoGen = (bot) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid = ctx.from.id;
     if (await redis.get(`vid:${uid}:state`) !== 'await_prompt') return next();
+
+    // Кнопка меню — сбрасываем состояние и пропускаем дальше
+    if (MENU_BUTTON_TEXTS.includes(ctx.message.text)) {
+      await cleanState(uid);
+      return next();
+    }
+
     const rawPrompt = ctx.message.text.trim();
     const prompt    = rawPrompt === '.' ? '' : rawPrompt;
     const model     = await redis.get(`vid:${uid}:model`)  || 'seedance1';

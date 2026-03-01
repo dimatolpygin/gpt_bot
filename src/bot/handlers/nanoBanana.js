@@ -14,6 +14,7 @@ import {
   nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
+import { MENU_BUTTON_TEXTS } from '../keyboards/main.js';
 import { spendTokens, notEnoughMsg, getPrice } from '../../services/tokens.js';
 
 const TG_MAX = 9 * 1024 * 1024;
@@ -354,6 +355,13 @@ export const setupNanoBanana = (bot) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid = ctx.from.id;
     if (await redis.get(`nb:${uid}:state`) !== 'await_prompt') return next();
+
+    // Кнопка меню — сбрасываем состояние и пропускаем дальше
+    if (MENU_BUTTON_TEXTS.includes(ctx.message.text)) {
+      await cleanState(uid);
+      return next();
+    }
+
     const prompt    = ctx.message.text;
     const model     = await redis.get(`nb:${uid}:model`) || 'nb1';
     const mode      = await redis.get(`nb:${uid}:mode`)  || 'txt2img';
