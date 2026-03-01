@@ -193,7 +193,7 @@ export const getTemplateById = async (id) => {
 export const getTariffs = async () => {
   const { data, error } = await sb
     .from('bot_tariffs')
-    .select('id, name, description, tokens, stars, sort_order')
+    .select('id, name, description, tokens, price_rub, stars, sort_order, is_active')
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
   if (error) throw error;
