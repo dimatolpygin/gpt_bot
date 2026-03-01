@@ -6,6 +6,9 @@ import { config } from './config/index.js';
 import { redis } from './services/redis.js';
 import { getBot } from './services/botInstance.js';
 import { getConvById, getMessages, getTemplates, getTemplateById } from './services/supabase.js';
+import { adminListContent, adminUpdateContent,
+         adminListPrices,  adminUpdatePrice,
+         adminListTariffs, adminUpdateTariff } from './services/supabase_admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app       = express();
@@ -121,6 +124,104 @@ app.post('/api/history', async (req, res) => {
   } catch (e) {
     console.error('[API] error:', e.message);
     return res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+// ─── Admin WebApp & API ─────────────────────────────────────────────
+const adminIds = (config.ADMIN_IDS || '')
+  .split(',')
+  .map(s => parseInt(s.trim(), 10))
+  .filter(Boolean);
+
+const isAdminUser = (user) => {
+  if (!user || !user.id) return false;
+  if (!adminIds.length) return false;
+  return adminIds.includes(user.id);
+};
+
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'src', 'webapp', 'admin.html'));
+});
+
+app.post('/api/admin/content/list', async (req, res) => {
+  try {
+    const { initData } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const items = await adminListContent();
+    res.json({ ok:true, items });
+  } catch (err) {
+    console.error('[API admin content list]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/content/update', async (req, res) => {
+  try {
+    const { initData, key, text } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    if (!key) return res.status(400).json({ ok:false, error:'key required' });
+    const row = await adminUpdateContent(key, text || '');
+    res.json({ ok:true, row });
+  } catch (err) {
+    console.error('[API admin content update]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/prices/list', async (req, res) => {
+  try {
+    const { initData } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const items = await adminListPrices();
+    res.json({ ok:true, items });
+  } catch (err) {
+    console.error('[API admin prices list]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/prices/update', async (req, res) => {
+  try {
+    const { initData, actionKey, tokens } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    if (!actionKey) return res.status(400).json({ ok:false, error:'actionKey required' });
+    const row = await adminUpdatePrice(actionKey, parseInt(tokens,10)||1);
+    res.json({ ok:true, row });
+  } catch (err) {
+    console.error('[API admin prices update]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/tariffs/list', async (req, res) => {
+  try {
+    const { initData } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const items = await adminListTariffs();
+    res.json({ ok:true, items });
+  } catch (err) {
+    console.error('[API admin tariffs list]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/tariffs/update', async (req, res) => {
+  try {
+    const { initData, id, patch } = req.body || {};
+    const user = validateInitData(initData);
+    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const tid = parseInt(id, 10);
+    if (!tid) return res.status(400).json({ ok:false, error:'id required' });
+    const row = await adminUpdateTariff(tid, patch || {});
+    res.json({ ok:true, row });
+  } catch (err) {
+    console.error('[API admin tariffs update]', err.message);
+    res.status(500).json({ ok:false, error:err.message });
   }
 });
 

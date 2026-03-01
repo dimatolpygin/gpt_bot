@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0f172a; color:#e5e7eb; }
+    .wrap { display:flex; height:100vh; }
+    .sidebar { width:240px; border-right:1px solid #1f2937; padding:16px; box-sizing:border-box; background:#020617; }
+    .main { flex:1; padding:16px; box-sizing:border-box; }
+    h1 { font-size:18px; margin:0 0 12px; }
+    h2 { font-size:16px; margin:0 0 8px; }
+    button { cursor:pointer; border:none; border-radius:6px; padding:8px 10px; background:#1d4ed8; color:white; font-size:13px; }
+    button.secondary { background:#374151; }
+    button.danger { background:#b91c1c; }
+    .section-btn { width:100%; text-align:left; margin-bottom:6px; }
+    .section-btn.active { background:#1d4ed8; }
+    .list { max-height:calc(100vh - 120px); overflow:auto; border-radius:6px; border:1px solid #1f2937; margin-top:8px; }
+    .list-item { padding:8px 10px; border-bottom:1px solid #111827; font-size:13px; cursor:pointer; }
+    .list-item:hover { background:#111827; }
+    .list-item.active { background:#1f2937; }
+    .field { margin-bottom:10px; }
+    label { display:block; font-size:12px; color:#9ca3af; margin-bottom:4px; }
+    input, textarea { width:100%; box-sizing:border-box; border-radius:6px; border:1px solid #374151; background:#020617; color:#e5e7eb; padding:6px 8px; font-size:13px; }
+    textarea { min-height:180px; resize:vertical; }
+    .row { display:flex; gap:8px; }
+    .row > .col { flex:1; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .status { font-size:12px; color:#9ca3af; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="sidebar">
+    <h1>Админ-панель</h1>
+    <button class="section-btn" data-section="content">📝 bot_content</button>
+    <button class="section-btn" data-section="prices">💰 token_prices</button>
+    <button class="section-btn" data-section="tariffs">📦 bot_tariffs</button>
+    <div id="list" class="list"></div>
+  </div>
+  <div class="main">
+    <div class="toolbar">
+      <h2 id="sectionTitle">Выберите раздел</h2>
+      <div class="status" id="status"></div>
+    </div>
+    <div id="editor"></div>
+  </div>
+</div>
+<script>
+  const tg = window.Telegram?.WebApp;
+  if (tg) tg.expand();
+
+  const sectionButtons = document.querySelectorAll('.section-btn');
+  const listEl = document.getElementById('list');
+  const editorEl = document.getElementById('editor');
+  const sectionTitleEl = document.getElementById('sectionTitle');
+  const statusEl = document.getElementById('status');
+
+  let state = {
+    section: null,
+    items: [],
+    selectedKey: null,
+  };
+
+  const setStatus = (msg, ok = true) => {
+    statusEl.textContent = msg || '';
+    statusEl.style.color = ok ? '#9ca3af' : '#f97373';
+    if (msg) setTimeout(() => { statusEl.textContent=''; }, 3000);
+  };
+
+  const apiFetch = async (path, options={}) => {
+    const initData = tg?.initData || '';
+    const res = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify({ ...(JSON.parse(options.body||'{}')), initData }) : (options.method && options.method !== 'GET' ? JSON.stringify({ initData }) : undefined),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.error || data.message || `HTTP ${res.status}`);
+    }
+    return data;
+  };
+
+  const renderList = () => {
+    listEl.innerHTML = '';
+    if (!state.items.length) {
+      listEl.innerHTML = '<div class="list-item">Пусто</div>';
+      return;
+    }
+    state.items.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'list-item' + (item._key === state.selectedKey ? ' active' : '');
+      div.textContent = item._label;
+      div.onclick = () => {
+        state.selectedKey = item._key;
+        renderList();
+        renderEditor();
+      };
+      listEl.appendChild(div);
+    });
+  };
+
+  const renderEditor = () => {
+    const item = state.items.find(i => i._key === state.selectedKey);
+    if (!item) {
+      editorEl.innerHTML = '<div style="color:#6b7280;font-size:13px;">Выберите запись слева.</div>';
+      return;
+    }
+
+    if (state.section === 'content') {
+      editorEl.innerHTML = `
+        <div class="field">
+          <label>key</label>
+          <input value="${item.key}" disabled />
+        </div>
+        <div class="field">
+          <label>label</label>
+          <input value="${item.label || ''}" disabled />
+        </div>
+        <div class="field">
+          <label>text</label>
+          <textarea id="contentText">${item.text || ''}</textarea>
+        </div>
+        <button id="saveBtn">💾 Сохранить</button>
+      `;
+      document.getElementById('saveBtn').onclick = async () => {
+        const text = document.getElementById('contentText').value;
+        try {
+          await apiFetch('/api/admin/content/update', {
+            method:'POST',
+            body: JSON.stringify({ key: item.key, text }),
+          });
+          item.text = text;
+          setStatus('Сохранено');
+        } catch (e) {
+          setStatus(e.message, false);
+        }
+      };
+      return;
+    }
+
+    if (state.section === 'prices') {
+      editorEl.innerHTML = `
+        <div class="field">
+          <label>action_key</label>
+          <input value="${item.action_key}" disabled />
+        </div>
+        <div class="field">
+          <label>label</label>
+          <input value="${item.label || ''}" disabled />
+        </div>
+        <div class="field">
+          <label>tokens</label>
+          <input id="priceTokens" type="number" value="${item.tokens}" />
+        </div>
+        <button id="saveBtn">💾 Сохранить</button>
+      `;
+      document.getElementById('saveBtn').onclick = async () => {
+        const tokens = parseInt(document.getElementById('priceTokens').value, 10) || 1;
+        try {
+          await apiFetch('/api/admin/prices/update', {
+            method:'POST',
+            body: JSON.stringify({ actionKey: item.action_key, tokens }),
+          });
+          item.tokens = tokens;
+          setStatus('Сохранено');
+        } catch (e) {
+          setStatus(e.message, false);
+        }
+      };
+      return;
+    }
+
+    if (state.section === 'tariffs') {
+      editorEl.innerHTML = `
+        <div class="row">
+          <div class="col">
+            <div class="field">
+              <label>id</label>
+              <input value="${item.id}" disabled />
+            </div>
+            <div class="field">
+              <label>name</label>
+              <input id="tName" value="${item.name || ''}" />
+            </div>
+            <div class="field">
+              <label>tokens</label>
+              <input id="tTokens" type="number" value="${item.tokens}" />
+            </div>
+          </div>
+          <div class="col">
+            <div class="field">
+              <label>price_rub</label>
+              <input id="tRub" type="number" value="${item.price_rub}" />
+            </div>
+            <div class="field">
+              <label>stars</label>
+              <input id="tStars" type="number" value="${item.stars}" />
+            </div>
+            <div class="field">
+              <label>is_active</label>
+              <input id="tActive" type="checkbox" ${item.is_active ? 'checked' : ''} />
+            </div>
+          </div>
+        </div>
+        <button id="saveBtn">💾 Сохранить</button>
+      `;
+      document.getElementById('saveBtn').onclick = async () => {
+        const patch = {
+          name: document.getElementById('tName').value,
+          tokens: parseInt(document.getElementById('tTokens').value, 10) || 0,
+          price_rub: parseInt(document.getElementById('tRub').value, 10) || 0,
+          stars: parseInt(document.getElementById('tStars').value, 10) || 0,
+          is_active: document.getElementById('tActive').checked,
+        };
+        try {
+          await apiFetch('/api/admin/tariffs/update', {
+            method:'POST',
+            body: JSON.stringify({ id: item.id, patch }),
+          });
+          Object.assign(item, patch);
+          setStatus('Сохранено');
+        } catch (e) {
+          setStatus(e.message, false);
+        }
+      };
+      return;
+    }
+  };
+
+  const loadSection = async (section) => {
+    state.section = section;
+    state.items = [];
+    state.selectedKey = null;
+    sectionButtons.forEach(b => b.classList.toggle('active', b.dataset.section === section));
+    sectionTitleEl.textContent =
+      section === 'content' ? '📝 bot_content' :
+      section === 'prices'  ? '💰 token_prices' :
+      section === 'tariffs' ? '📦 bot_tariffs' : 'Раздел';
+    editorEl.innerHTML = '';
+    listEl.innerHTML = '<div class="list-item">Загрузка...</div>';
+
+    try {
+      let data;
+      if (section === 'content') {
+        data = await apiFetch('/api/admin/content/list', { method:'POST', body: '{}' });
+        state.items = (data.items || []).map(r => ({ ...r, _key:r.key, _label:r.key }));
+      } else if (section === 'prices') {
+        data = await apiFetch('/api/admin/prices/list', { method:'POST', body: '{}' });
+        state.items = (data.items || []).map(r => ({ ...r, _key:r.action_key, _label:r.action_key }));
+      } else if (section === 'tariffs') {
+        data = await apiFetch('/api/admin/tariffs/list', { method:'POST', body: '{}' });
+        state.items = (data.items || []).map(r => ({ ...r, _key:String(r.id), _label:`${r.id}: ${r.name}` }));
+      }
+      state.selectedKey = state.items[0]?._key || null;
+      renderList();
+      renderEditor();
+      setStatus('Загружено');
+    } catch (e) {
+      listEl.innerHTML = `<div class="list-item">Ошибка: ${e.message}</div>`;
+      setStatus(e.message, false);
+    }
+  };
+
+  sectionButtons.forEach(btn => {
+    btn.onclick = () => loadSection(btn.dataset.section);
+  });
+</script>
+</body>
+</html>

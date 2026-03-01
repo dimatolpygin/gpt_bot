@@ -18,6 +18,7 @@ export const config = {
     ? process.env.ALLOWED_USERS.split(',').map(s => parseInt(s.trim())).filter(Boolean)
     : [],
   WAVESPEED_API_KEY: process.env.WAVESPEED_API_KEY || '',
+  ADMIN_IDS:         process.env.ADMIN_IDS || '',
   YOOKASSA_SHOP_ID:   process.env.YOOKASSA_SHOP_ID   || '',
   YOOKASSA_SECRET_KEY:process.env.YOOKASSA_SECRET_KEY || '',
   YOOKASSA_RETURN_URL:process.env.YOOKASSA_RETURN_URL || '',
