@@ -6,8 +6,8 @@ const PENALTY_KEY = (uid) => `spam:penalty:${uid}`;
 const BAN_TTL_KEY = (uid) => `spam:ban-until:${uid}`;
 const BASE_PENALTY = 30;
 const MAX_PENALTY = 3600;
-const THRESHOLD = 5;
-const WINDOW = 10; // seconds
+const THRESHOLD = 20;
+const WINDOW = 3; // seconds
 
 export const spamGuard = async (ctx, next) => {
   if (!ctx.from) return next();
