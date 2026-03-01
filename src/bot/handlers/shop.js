@@ -49,7 +49,6 @@ export const setupShop = (bot) => {
     const tariff = tariffs.find(t => t.id === tariffId);
     if (!tariff) return ctx.reply('❌ Тариф не найден.');
 
-    // provider_token: '' обязателен для Telegram Stars (XTR)
     await ctx.replyWithInvoice({
       title:          tariff.name,
       description:    tariff.description || `${tariff.tokens} токенов для генераций`,
@@ -60,16 +59,8 @@ export const setupShop = (bot) => {
     });
   });
 
-  // ── Pre-checkout — отвечаем немедленно (лимит 10 сек) ────────────
-  bot.on('pre_checkout_query', async (ctx) => {
-    try {
-      await ctx.answerPreCheckoutQuery(true);
-    } catch (e) {
-      console.error('[Shop] pre_checkout_query error:', e.message);
-    }
-  });
-
   // ── Успешная оплата → начислить токены + записать покупку ─────────
+  // pre_checkout_query обрабатывается в index.js ДО authMiddleware
   bot.on('successful_payment', async (ctx) => {
     const sp       = ctx.message.successful_payment;
     const payload  = sp.invoice_payload;

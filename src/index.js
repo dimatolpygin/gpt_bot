@@ -12,14 +12,13 @@ import { authMiddleware } from './bot/middleware/auth.js';
 import { setupHandlers } from './bot/handlers/index.js';
 import { startServer }  from './server.js';
 
-// ── Validate env ──────────────────────────────────────────────────────
 ['BOT_TOKEN', 'OPENAI_API_KEY', 'SUPABASE_URL', 'SUPABASE_KEY'].forEach(k => {
   if (!config[k]) throw new Error(`Missing env: ${k}`);
 });
 
 function buildAgent() {
   if (process.env.SOCKS5_PROXY) return new SocksProxyAgent(process.env.SOCKS5_PROXY);
-  if (process.env.HTTPS_PROXY) return new HttpsProxyAgent(process.env.HTTPS_PROXY);
+  if (process.env.HTTPS_PROXY)  return new HttpsProxyAgent(process.env.HTTPS_PROXY);
   return undefined;
 }
 
@@ -29,6 +28,11 @@ const bot = new Telegraf(config.BOT_TOKEN, {
 });
 setBot(bot);
 
+// ── pre_checkout_query ДО auth — Telegram требует ответа за 10 сек ──
+bot.on('pre_checkout_query', (ctx) =>
+  ctx.answerPreCheckoutQuery(true).catch(() => {})
+);
+
 // ── Middlewares ───────────────────────────────────────────────────────
 bot.use(authMiddleware);
 
@@ -37,10 +41,10 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// ── Handlers ──────────────────────────────────────────────────────────
+// ── Handlers ───────────────────────────────────────────────────────────
 setupHandlers(bot);
 
-// ── Global error handler ──────────────────────────────────────────────
+// ── Global error handler ───────────────────────────────────────────────
 bot.catch((err, ctx) => {
   if (err?.name === 'TimeoutError' || err?.message?.includes('timed out')) {
     console.warn(`[Bot] handler timeout (${ctx.updateType})`);
@@ -56,7 +60,7 @@ bot.catch((err, ctx) => {
   ctx?.reply('❌ Внутренняя ошибка. Попробуйте позже.').catch(() => {});
 });
 
-// ── Launch ────────────────────────────────────────────────────────────
+// ── Launch ─────────────────────────────────────────────────────────────
 try {
   await startServer();
   console.log('🌐 WebApp server started');
@@ -65,7 +69,8 @@ try {
   process.exit(1);
 }
 
-await bot.launch({ allowedUpdates: ['message', 'callback_query'] });
+// pre_checkout_query добавлен в allowedUpdates
+await bot.launch({ allowedUpdates: ['message', 'callback_query', 'pre_checkout_query'] });
 console.log('🤖 Bot is running');
 
 process.once('SIGINT',  () => { bot.stop('SIGINT');  redis.quit(); });
