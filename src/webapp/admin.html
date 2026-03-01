@@ -2,293 +2,848 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Admin Panel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Studio</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
   <style>
-    body { margin:0; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0f172a; color:#e5e7eb; }
-    .wrap { display:flex; height:100vh; }
-    .sidebar { width:240px; border-right:1px solid #1f2937; padding:16px; box-sizing:border-box; background:#020617; }
-    .main { flex:1; padding:16px; box-sizing:border-box; }
-    h1 { font-size:18px; margin:0 0 12px; }
-    h2 { font-size:16px; margin:0 0 8px; }
-    button { cursor:pointer; border:none; border-radius:6px; padding:8px 10px; background:#1d4ed8; color:white; font-size:13px; }
-    button.secondary { background:#374151; }
-    button.danger { background:#b91c1c; }
-    .section-btn { width:100%; text-align:left; margin-bottom:6px; }
-    .section-btn.active { background:#1d4ed8; }
-    .list { max-height:calc(100vh - 120px); overflow:auto; border-radius:6px; border:1px solid #1f2937; margin-top:8px; }
-    .list-item { padding:8px 10px; border-bottom:1px solid #111827; font-size:13px; cursor:pointer; }
-    .list-item:hover { background:#111827; }
-    .list-item.active { background:#1f2937; }
-    .field { margin-bottom:10px; }
-    label { display:block; font-size:12px; color:#9ca3af; margin-bottom:4px; }
-    input, textarea { width:100%; box-sizing:border-box; border-radius:6px; border:1px solid #374151; background:#020617; color:#e5e7eb; padding:6px 8px; font-size:13px; }
-    textarea { min-height:180px; resize:vertical; }
-    .row { display:flex; gap:8px; }
-    .row > .col { flex:1; }
-    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-    .status { font-size:12px; color:#9ca3af; }
+    :root {
+      --bg: #070707;
+      --bg-soft: #101010;
+      --panel: #121212;
+      --line: #2a2a2a;
+      --muted: #a5a5a5;
+      --text: #f5f5f5;
+      --danger: #f87171;
+      --ok: #86efac;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: 'Manrope', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 700px at -10% -10%, #2f2f2f 0%, transparent 55%),
+        radial-gradient(900px 600px at 120% 0%, #1e1e1e 0%, transparent 62%),
+        linear-gradient(180deg, #060606 0%, #0b0b0b 100%);
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 14px;
+      min-height: 100dvh;
+      padding: 14px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      backdrop-filter: blur(8px);
+      box-shadow: 0 20px 40px rgba(0,0,0,.45);
+    }
+    .sidebar {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .brand {
+      border-bottom: 1px solid #1f1f1f;
+      padding-bottom: 10px;
+    }
+    .brand h1 {
+      margin: 0;
+      font: 700 19px 'Space Grotesk', sans-serif;
+    }
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .section-nav {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .section-btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 11px;
+      background: linear-gradient(180deg, #161616 0%, #101010 100%);
+      color: var(--text);
+      text-align: left;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .section-btn.active {
+      background: linear-gradient(180deg, #ffffff 0%, #dbdbdb 100%);
+      color: #101010;
+      border-color: #efefef;
+    }
+    .list {
+      border: 1px solid #1f1f1f;
+      border-radius: 10px;
+      overflow: auto;
+      max-height: calc(100dvh - 370px);
+      min-height: 180px;
+      background: #0e0e0e;
+    }
+    .list-item {
+      border-bottom: 1px solid #1d1d1d;
+      padding: 9px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      word-break: break-word;
+    }
+    .list-item:last-child { border-bottom: 0; }
+    .list-item:hover { background: #171717; }
+    .list-item.active { background: #ffffff; color: #101010; font-weight: 800; }
+    .pager {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 16px;
+      gap: 12px;
+    }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid #1f1f1f;
+      padding-bottom: 10px;
+    }
+    .toolbar h2 {
+      margin: 0;
+      font: 700 20px 'Space Grotesk', sans-serif;
+    }
+    .toolbar p {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+      max-width: 45%;
+      text-align: right;
+    }
+    .editor {
+      border: 1px solid #1f1f1f;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #111111 0%, #0b0b0b 100%);
+      padding: 14px;
+      min-height: 340px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .field { margin-bottom: 10px; }
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: #9a9a9a;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid #2e2e2e;
+      border-radius: 10px;
+      background: #0a0a0a;
+      color: var(--text);
+      padding: 9px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: #fff;
+      box-shadow: 0 0 0 3px rgba(255,255,255,.08);
+    }
+    textarea { min-height: 210px; resize: vertical; }
+    .btn {
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fff 0%, #dbdbdb 100%);
+      color: #101010;
+      padding: 9px 13px;
+      font: 700 13px 'Space Grotesk', sans-serif;
+      cursor: pointer;
+      margin-right: 8px;
+      margin-top: 8px;
+    }
+    .btn.alt {
+      background: linear-gradient(180deg, #1d1d1d 0%, #151515 100%);
+      border: 1px solid #2c2c2c;
+      color: var(--text);
+    }
+    .btn.danger {
+      background: linear-gradient(180deg, #fca5a5 0%, #ef4444 100%);
+      color: #1c0101;
+    }
+    .note {
+      color: #8f8f8f;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    .table-wrap {
+      border: 1px solid #1f1f1f;
+      border-radius: 10px;
+      overflow: auto;
+      margin-top: 10px;
+      max-height: 420px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid #1f1f1f;
+      padding: 8px 9px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #121212;
+      color: #d6d6d6;
+      font-weight: 800;
+      z-index: 1;
+    }
+    .drag-list {
+      list-style: none;
+      margin: 10px 0 0;
+      padding: 0;
+      border: 1px solid #1f1f1f;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .drag-item {
+      padding: 9px 10px;
+      border-bottom: 1px solid #1f1f1f;
+      background: #0f0f0f;
+      cursor: grab;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+    .drag-item:last-child { border-bottom: 0; }
+    .drag-item.dragging { opacity: .45; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; padding: 10px; }
+      .status { max-width: 100%; text-align: left; }
+      .toolbar { flex-direction: column; }
+      .grid { grid-template-columns: 1fr; }
+      .list { max-height: 210px; }
+    }
   </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="sidebar">
-    <h1>Админ-панель</h1>
-    <button class="section-btn" data-section="content">📝 bot_content</button>
-    <button class="section-btn" data-section="prices">💰 token_prices</button>
-    <button class="section-btn" data-section="tariffs">📦 bot_tariffs</button>
-    <div id="list" class="list"></div>
+  <div class="app">
+    <aside class="panel sidebar">
+      <div class="brand">
+        <h1>Admin Studio</h1>
+        <p>Расширенная панель управления ботом</p>
+      </div>
+
+      <nav class="section-nav" id="sectionNav"></nav>
+
+      <div class="field" style="margin-top:6px;">
+        <label>Поиск / фильтр</label>
+        <input id="queryInput" placeholder="id, username, key, статус..." />
+      </div>
+
+      <div class="list" id="list"></div>
+      <div class="pager">
+        <button class="btn alt" id="prevBtn">Назад</button>
+        <button class="btn alt" id="nextBtn">Вперёд</button>
+      </div>
+    </aside>
+
+    <main class="panel main">
+      <div class="toolbar">
+        <div>
+          <h2 id="sectionTitle">Выберите раздел</h2>
+          <p id="sectionSubtitle">Доступно только внутри Telegram WebApp.</p>
+        </div>
+        <div class="status" id="status"></div>
+      </div>
+      <div class="editor" id="editor"></div>
+    </main>
   </div>
-  <div class="main">
-    <div class="toolbar">
-      <h2 id="sectionTitle">Выберите раздел</h2>
-      <div class="status" id="status"></div>
-    </div>
-    <div id="editor"></div>
-  </div>
-</div>
-<script>
-  const tg = window.Telegram?.WebApp;
-  if (tg) tg.expand();
 
-  const sectionButtons = document.querySelectorAll('.section-btn');
-  const listEl = document.getElementById('list');
-  const editorEl = document.getElementById('editor');
-  const sectionTitleEl = document.getElementById('sectionTitle');
-  const statusEl = document.getElementById('status');
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) tg.expand();
 
-  let state = {
-    section: null,
-    items: [],
-    selectedKey: null,
-  };
+    const initData = tg?.initData || '';
+    const hasInitData = Boolean(initData);
 
-  const setStatus = (msg, ok = true) => {
-    statusEl.textContent = msg || '';
-    statusEl.style.color = ok ? '#9ca3af' : '#f97373';
-    if (msg) setTimeout(() => { statusEl.textContent=''; }, 3000);
-  };
+    const SECTIONS = [
+      { id: 'content', title: '📝 Контент бота', subtitle: 'Редактирование bot_content' },
+      { id: 'prices', title: '💰 Цены токенов', subtitle: 'token_prices: tokens + active' },
+      { id: 'tariffs', title: '📦 Тарифы', subtitle: 'bot_tariffs + сортировка' },
+      { id: 'users', title: '👤 Пользователи', subtitle: 'Поиск, бан, сброс, очистка диалогов' },
+      { id: 'tokens', title: '🪙 Операции токенов', subtitle: 'Начисление/списание + история' },
+      { id: 'referrals', title: '👥 Рефералы', subtitle: 'Топ и детализация по пользователю' },
+      { id: 'purchases', title: '🧾 Покупки', subtitle: 'История оплат с фильтрами' },
+      { id: 'admins', title: '🛡 Админы', subtitle: 'Роли owner/moderator' },
+      { id: 'audit', title: '📜 Аудит', subtitle: 'Лог действий админов' },
+    ];
 
-  const initData = tg?.initData || '';
-  const hasInitData = Boolean(initData);
-  const initDataWarning = 'Откройте админку через Telegram WebApp, иначе доступ закрыт.';
-  const ensureInitData = () => {
-    if (!hasInitData) {
-      throw new Error(initDataWarning);
-    }
-    return initData;
-  };
-  if (!hasInitData) setStatus(initDataWarning, false);
+    const state = {
+      section: null,
+      items: [],
+      selectedKey: null,
+      page: 0,
+      limit: 30,
+      query: '',
+      cache: {},
+    };
 
-  const apiFetch = async (path, options={}) => {
-    const payload = options.body ? JSON.parse(options.body) : {};
-    payload.initData = ensureInitData();
-    const res = await fetch(path, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) {
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
-    }
-    return data;
-  };
+    const sectionNav = document.getElementById('sectionNav');
+    const queryInput = document.getElementById('queryInput');
+    const listEl = document.getElementById('list');
+    const editorEl = document.getElementById('editor');
+    const titleEl = document.getElementById('sectionTitle');
+    const subtitleEl = document.getElementById('sectionSubtitle');
+    const statusEl = document.getElementById('status');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
 
-  const renderList = () => {
-    listEl.innerHTML = '';
-    if (!state.items.length) {
-      listEl.innerHTML = '<div class="list-item">Пусто</div>';
-      return;
-    }
-    state.items.forEach(item => {
-      const div = document.createElement('div');
-      div.className = 'list-item' + (item._key === state.selectedKey ? ' active' : '');
-      div.textContent = item._label;
-      div.onclick = () => {
-        state.selectedKey = item._key;
-        renderList();
-        renderEditor();
-      };
-      listEl.appendChild(div);
-    });
-  };
+    const setStatus = (msg, ok = true) => {
+      statusEl.textContent = msg || '';
+      statusEl.style.color = ok ? '#a5a5a5' : '#f87171';
+      if (msg) setTimeout(() => { statusEl.textContent = ''; }, 3400);
+    };
 
-  const renderEditor = () => {
-    const item = state.items.find(i => i._key === state.selectedKey);
-    if (!item) {
-      editorEl.innerHTML = '<div style="color:#6b7280;font-size:13px;">Выберите запись слева.</div>';
-      return;
-    }
+    const ensureInitData = () => {
+      if (!hasInitData) throw new Error('Откройте страницу через Telegram WebApp.');
+      return initData;
+    };
 
-    if (state.section === 'content') {
-      editorEl.innerHTML = `
-        <div class="field">
-          <label>key</label>
-          <input value="${item.key}" disabled />
-        </div>
-        <div class="field">
-          <label>label</label>
-          <input value="${item.label || ''}" disabled />
-        </div>
-        <div class="field">
-          <label>text</label>
-          <textarea id="contentText">${item.text || ''}</textarea>
-        </div>
-        <button id="saveBtn">💾 Сохранить</button>
-      `;
-      document.getElementById('saveBtn').onclick = async () => {
-        const text = document.getElementById('contentText').value;
-        try {
-          await apiFetch('/api/admin/content/update', {
-            method:'POST',
-            body: JSON.stringify({ key: item.key, text }),
-          });
-          item.text = text;
-          setStatus('Сохранено');
-        } catch (e) {
-          setStatus(e.message, false);
-        }
-      };
-      return;
-    }
-
-    if (state.section === 'prices') {
-      editorEl.innerHTML = `
-        <div class="field">
-          <label>action_key</label>
-          <input value="${item.action_key}" disabled />
-        </div>
-        <div class="field">
-          <label>label</label>
-          <input value="${item.label || ''}" disabled />
-        </div>
-        <div class="field">
-          <label>tokens</label>
-          <input id="priceTokens" type="number" value="${item.tokens}" />
-        </div>
-        <button id="saveBtn">💾 Сохранить</button>
-      `;
-      document.getElementById('saveBtn').onclick = async () => {
-        const tokens = parseInt(document.getElementById('priceTokens').value, 10) || 1;
-        try {
-          await apiFetch('/api/admin/prices/update', {
-            method:'POST',
-            body: JSON.stringify({ actionKey: item.action_key, tokens }),
-          });
-          item.tokens = tokens;
-          setStatus('Сохранено');
-        } catch (e) {
-          setStatus(e.message, false);
-        }
-      };
-      return;
-    }
-
-    if (state.section === 'tariffs') {
-      editorEl.innerHTML = `
-        <div class="row">
-          <div class="col">
-            <div class="field">
-              <label>id</label>
-              <input value="${item.id}" disabled />
-            </div>
-            <div class="field">
-              <label>name</label>
-              <input id="tName" value="${item.name || ''}" />
-            </div>
-            <div class="field">
-              <label>tokens</label>
-              <input id="tTokens" type="number" value="${item.tokens}" />
-            </div>
-          </div>
-          <div class="col">
-            <div class="field">
-              <label>price_rub</label>
-              <input id="tRub" type="number" value="${item.price_rub}" />
-            </div>
-            <div class="field">
-              <label>stars</label>
-              <input id="tStars" type="number" value="${item.stars}" />
-            </div>
-            <div class="field">
-              <label>is_active</label>
-              <input id="tActive" type="checkbox" ${item.is_active ? 'checked' : ''} />
-            </div>
-          </div>
-        </div>
-        <button id="saveBtn">💾 Сохранить</button>
-      `;
-      document.getElementById('saveBtn').onclick = async () => {
-        const patch = {
-          name: document.getElementById('tName').value,
-          tokens: parseInt(document.getElementById('tTokens').value, 10) || 0,
-          price_rub: parseInt(document.getElementById('tRub').value, 10) || 0,
-          stars: parseInt(document.getElementById('tStars').value, 10) || 0,
-          is_active: document.getElementById('tActive').checked,
-        };
-        try {
-          await apiFetch('/api/admin/tariffs/update', {
-            method:'POST',
-            body: JSON.stringify({ id: item.id, patch }),
-          });
-          Object.assign(item, patch);
-          setStatus('Сохранено');
-        } catch (e) {
-          setStatus(e.message, false);
-        }
-      };
-      return;
-    }
-  };
-
-  const loadSection = async (section) => {
-    state.section = section;
-    state.items = [];
-    state.selectedKey = null;
-    sectionButtons.forEach(b => b.classList.toggle('active', b.dataset.section === section));
-    sectionTitleEl.textContent =
-      section === 'content' ? '📝 bot_content' :
-      section === 'prices'  ? '💰 token_prices' :
-      section === 'tariffs' ? '📦 bot_tariffs' : 'Раздел';
-    editorEl.innerHTML = '';
-    listEl.innerHTML = '<div class="list-item">Загрузка...</div>';
-
-    try {
-      let data;
-      if (section === 'content') {
-        data = await apiFetch('/api/admin/content/list', { method:'POST', body: '{}' });
-        state.items = (data.items || []).map(r => ({ ...r, _key:r.key, _label:r.key }));
-      } else if (section === 'prices') {
-        data = await apiFetch('/api/admin/prices/list', { method:'POST', body: '{}' });
-        state.items = (data.items || []).map(r => ({ ...r, _key:r.action_key, _label:r.action_key }));
-      } else if (section === 'tariffs') {
-        data = await apiFetch('/api/admin/tariffs/list', { method:'POST', body: '{}' });
-        state.items = (data.items || []).map(r => ({ ...r, _key:String(r.id), _label:`${r.id}: ${r.name}` }));
+    const apiFetch = async (path, payload = {}) => {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, initData: ensureInitData() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || data.message || `HTTP ${res.status}`);
       }
-      state.selectedKey = state.items[0]?._key || null;
-      renderList();
-      renderEditor();
-      setStatus('Загружено');
-    } catch (e) {
-      listEl.innerHTML = `<div class="list-item">Ошибка: ${e.message}</div>`;
-      setStatus(e.message, false);
-    }
-  };
+      return data;
+    };
 
-  sectionButtons.forEach(btn => {
-    btn.onclick = () => {
-      if (!hasInitData) {
-        setStatus(initDataWarning, false);
+    const fmtDate = (v) => v ? new Date(v).toLocaleString('ru-RU') : '-';
+
+    const buildNav = () => {
+      sectionNav.innerHTML = '';
+      SECTIONS.forEach(s => {
+        const btn = document.createElement('button');
+        btn.className = 'section-btn' + (state.section === s.id ? ' active' : '');
+        btn.textContent = s.title;
+        btn.onclick = () => selectSection(s.id);
+        sectionNav.appendChild(btn);
+      });
+    };
+
+    const selectSection = async (sectionId) => {
+      state.section = sectionId;
+      state.page = 0;
+      state.selectedKey = null;
+      state.cache = {};
+      const meta = SECTIONS.find(x => x.id === sectionId);
+      titleEl.textContent = meta?.title || 'Раздел';
+      subtitleEl.textContent = meta?.subtitle || '';
+      buildNav();
+      await loadSection();
+    };
+
+    const renderList = () => {
+      listEl.innerHTML = '';
+      if (!state.items.length) {
+        listEl.innerHTML = '<div class="list-item">Нет данных</div>';
         return;
       }
-      loadSection(btn.dataset.section);
+
+      state.items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'list-item' + (item._key === state.selectedKey ? ' active' : '');
+        el.textContent = item._label;
+        el.onclick = () => {
+          state.selectedKey = item._key;
+          renderList();
+          renderEditor();
+        };
+        listEl.appendChild(el);
+      });
     };
-  });
-</script>
+
+    const renderTable = (columns, rows) => {
+      if (!rows.length) return '<p class="note">Нет записей.</p>';
+      const head = columns.map(c => `<th>${c.label}</th>`).join('');
+      const body = rows.map(row => {
+        const tds = columns.map(c => `<td>${c.render ? c.render(row) : (row[c.key] ?? '')}</td>`).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    };
+
+    const renderEditor = () => {
+      const item = state.items.find(x => x._key === state.selectedKey);
+      if (!item) {
+        editorEl.innerHTML = '<p class="note">Выберите запись слева.</p>';
+        return;
+      }
+
+      if (state.section === 'content') {
+        editorEl.innerHTML = `
+          <div class="field"><label>key</label><input disabled value="${item.key}" /></div>
+          <div class="field"><label>label</label><input disabled value="${item.label || ''}" /></div>
+          <div class="field"><label>text</label><textarea id="contentText">${item.text || ''}</textarea></div>
+          <button class="btn" id="saveContentBtn">Сохранить</button>
+        `;
+        document.getElementById('saveContentBtn').onclick = async () => {
+          try {
+            const text = document.getElementById('contentText').value;
+            await apiFetch('/api/admin/content/update', { key: item.key, text });
+            item.text = text;
+            setStatus('Контент обновлён');
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'prices') {
+        editorEl.innerHTML = `
+          <div class="field"><label>action_key</label><input disabled value="${item.action_key}" /></div>
+          <div class="field"><label>label</label><input disabled value="${item.label || ''}" /></div>
+          <div class="grid">
+            <div class="field"><label>tokens</label><input type="number" id="priceTokens" value="${item.tokens}" /></div>
+            <div class="field"><label>active</label><select id="priceActive"><option value="1" ${item.active ? 'selected' : ''}>Включено</option><option value="0" ${!item.active ? 'selected' : ''}>Выключено</option></select></div>
+          </div>
+          <button class="btn" id="savePriceBtn">Сохранить</button>
+        `;
+        document.getElementById('savePriceBtn').onclick = async () => {
+          try {
+            const tokens = parseInt(document.getElementById('priceTokens').value, 10) || 1;
+            const active = document.getElementById('priceActive').value === '1';
+            const data = await apiFetch('/api/admin/prices/update', { actionKey: item.action_key, tokens, active });
+            Object.assign(item, data.row || {});
+            renderList();
+            setStatus('Цена обновлена');
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'tariffs') {
+        const listHtml = state.items.map(x =>
+          `<li class="drag-item" draggable="true" data-id="${x.id}"><span>${x.name}</span><span class="mono">#${x.id}</span></li>`
+        ).join('');
+
+        editorEl.innerHTML = `
+          <div class="grid">
+            <div>
+              <div class="field"><label>id</label><input disabled value="${item.id}" /></div>
+              <div class="field"><label>name</label><input id="tariffName" value="${item.name || ''}" /></div>
+              <div class="field"><label>tokens</label><input type="number" id="tariffTokens" value="${item.tokens}" /></div>
+            </div>
+            <div>
+              <div class="field"><label>price_rub</label><input type="number" id="tariffRub" value="${item.price_rub}" /></div>
+              <div class="field"><label>stars</label><input type="number" id="tariffStars" value="${item.stars}" /></div>
+              <div class="field"><label>active</label><select id="tariffActive"><option value="1" ${item.is_active ? 'selected' : ''}>Включён</option><option value="0" ${!item.is_active ? 'selected' : ''}>Выключен</option></select></div>
+            </div>
+          </div>
+          <button class="btn" id="saveTariffBtn">Сохранить тариф</button>
+          <p class="note">Перетаскивайте тарифы для изменения sort_order, затем нажмите сохранить порядок.</p>
+          <ul class="drag-list" id="tariffDragList">${listHtml}</ul>
+          <button class="btn alt" id="saveOrderBtn">Сохранить порядок</button>
+        `;
+
+        document.getElementById('saveTariffBtn').onclick = async () => {
+          try {
+            const patch = {
+              name: document.getElementById('tariffName').value,
+              tokens: parseInt(document.getElementById('tariffTokens').value, 10) || 0,
+              price_rub: parseInt(document.getElementById('tariffRub').value, 10) || 0,
+              stars: parseInt(document.getElementById('tariffStars').value, 10) || 0,
+              is_active: document.getElementById('tariffActive').value === '1',
+            };
+            const data = await apiFetch('/api/admin/tariffs/update', { id: item.id, patch });
+            Object.assign(item, data.row || {});
+            renderList();
+            setStatus('Тариф обновлён');
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        const dragList = document.getElementById('tariffDragList');
+        let dragged = null;
+        [...dragList.querySelectorAll('.drag-item')].forEach(el => {
+          el.ondragstart = () => { dragged = el; el.classList.add('dragging'); };
+          el.ondragend = () => { el.classList.remove('dragging'); dragged = null; };
+          el.ondragover = (ev) => { ev.preventDefault(); };
+          el.ondrop = (ev) => {
+            ev.preventDefault();
+            if (!dragged || dragged === el) return;
+            const list = [...dragList.children];
+            const from = list.indexOf(dragged);
+            const to = list.indexOf(el);
+            if (from < to) dragList.insertBefore(dragged, el.nextSibling);
+            else dragList.insertBefore(dragged, el);
+          };
+        });
+
+        document.getElementById('saveOrderBtn').onclick = async () => {
+          try {
+            const ids = [...document.querySelectorAll('#tariffDragList .drag-item')].map(x => parseInt(x.dataset.id, 10));
+            const payload = ids.map((id, idx) => ({ id, sort_order: idx }));
+            await apiFetch('/api/admin/tariffs/reorder', { items: payload });
+            setStatus('Порядок тарифов сохранён');
+            await loadSection();
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'users') {
+        const userId = item.telegram_id;
+        editorEl.innerHTML = `
+          <div class="grid">
+            <div>
+              <div class="field"><label>ID</label><input disabled value="${userId}" /></div>
+              <div class="field"><label>Username</label><input disabled value="${item.username || '-'}" /></div>
+              <div class="field"><label>Создан</label><input disabled value="${fmtDate(item.created_at)}" /></div>
+            </div>
+            <div>
+              <div class="field"><label>Обновлён</label><input disabled value="${fmtDate(item.updated_at)}" /></div>
+              <div class="field"><label>Статус</label><input disabled value="${item.is_banned ? 'Забанен' : 'Активен'}" /></div>
+              <div class="field"><label>Причина (для бана)</label><input id="banReason" placeholder="Нарушение правил" /></div>
+            </div>
+          </div>
+          <button class="btn danger" id="banBtn">Забанить</button>
+          <button class="btn alt" id="unbanBtn">Разбанить</button>
+          <button class="btn alt" id="resetBtn">Сбросить настройки</button>
+          <button class="btn danger" id="deleteDialogsBtn">Удалить диалоги</button>
+        `;
+
+        document.getElementById('banBtn').onclick = async () => {
+          try {
+            const reason = document.getElementById('banReason').value || '';
+            await apiFetch('/api/admin/users/ban', { userId, reason });
+            item.is_banned = true;
+            renderList();
+            setStatus('Пользователь забанен');
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        document.getElementById('unbanBtn').onclick = async () => {
+          try {
+            await apiFetch('/api/admin/users/unban', { userId });
+            item.is_banned = false;
+            renderList();
+            setStatus('Пользователь разбанен');
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        document.getElementById('resetBtn').onclick = async () => {
+          if (!confirm('Сбросить настройки пользователя?')) return;
+          try {
+            await apiFetch('/api/admin/users/reset-settings', { userId });
+            setStatus('Настройки сброшены');
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        document.getElementById('deleteDialogsBtn').onclick = async () => {
+          if (!confirm('Удалить все диалоги пользователя?')) return;
+          try {
+            await apiFetch('/api/admin/users/delete-dialogs', { userId });
+            setStatus('Диалоги удалены');
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'tokens') {
+        const userId = item._key;
+        const history = state.cache.tokenHistory || [];
+        const table = renderTable([
+          { label: 'Дата', key: 'created_at', render: r => fmtDate(r.created_at) },
+          { label: 'Сумма', key: 'amount' },
+          { label: 'action_key', key: 'action_key' },
+          { label: 'Описание', key: 'description' },
+          { label: 'Баланс после', key: 'balance_after' },
+        ], history);
+
+        editorEl.innerHTML = `
+          <div class="grid">
+            <div>
+              <div class="field"><label>User ID</label><input id="tokUserId" value="${userId}" /></div>
+              <div class="field"><label>Amount (+/-)</label><input id="tokAmount" type="number" value="100" /></div>
+              <div class="field"><label>Причина</label><input id="tokReason" placeholder="Ручная корректировка" /></div>
+              <button class="btn" id="tokApplyBtn">Применить</button>
+            </div>
+            <div>
+              <div class="field"><label>Фильтр типа</label><select id="tokType"><option value="all">Все</option><option value="credit">Начисления</option><option value="debit">Списания</option></select></div>
+              <div class="field"><label>From</label><input id="tokFrom" type="datetime-local" /></div>
+              <div class="field"><label>To</label><input id="tokTo" type="datetime-local" /></div>
+              <button class="btn alt" id="tokLoadBtn">Обновить историю</button>
+            </div>
+          </div>
+          ${table}
+        `;
+
+        document.getElementById('tokApplyBtn').onclick = async () => {
+          try {
+            const uid = parseInt(document.getElementById('tokUserId').value, 10);
+            const amount = parseInt(document.getElementById('tokAmount').value, 10);
+            const reason = document.getElementById('tokReason').value || '';
+            await apiFetch('/api/admin/tokens/adjust', { userId: uid, amount, reason });
+            setStatus('Операция с токенами выполнена');
+            await loadTokenHistory(uid);
+            renderEditor();
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        document.getElementById('tokLoadBtn').onclick = async () => {
+          try {
+            const uid = parseInt(document.getElementById('tokUserId').value, 10);
+            await loadTokenHistory(uid, {
+              type: document.getElementById('tokType').value,
+              fromDate: document.getElementById('tokFrom').value || null,
+              toDate: document.getElementById('tokTo').value || null,
+            });
+            renderEditor();
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'referrals') {
+        const uid = parseInt(item._key, 10);
+        const details = state.cache.userReferrals || [];
+        editorEl.innerHTML = `
+          <p class="note">referrer_id: <b>${uid}</b> · count: <b>${item.referrals_count}</b> · awarded: <b>${item.total_tokens_awarded}</b></p>
+          <button class="btn alt" id="loadRefBtn">Показать рефералов пользователя</button>
+          ${renderTable([
+            { label: 'ID', key: 'id' },
+            { label: 'Referee', key: 'referee_id' },
+            { label: 'Tokens', key: 'tokens_awarded' },
+            { label: 'Дата', key: 'created_at', render: r => fmtDate(r.created_at) },
+          ], details)}
+        `;
+        document.getElementById('loadRefBtn').onclick = async () => {
+          try {
+            const data = await apiFetch('/api/admin/referrals/user', { userId: uid, page: 0, limit: 100 });
+            state.cache.userReferrals = data.items || [];
+            renderEditor();
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'purchases') {
+        const rows = state.cache.purchases || [];
+        editorEl.innerHTML = `
+          <div class="grid">
+            <div class="field"><label>user_id</label><input id="pUser" placeholder="например 12345" value="${state.cache.pFilterUser || ''}" /></div>
+            <div class="field"><label>status</label><select id="pStatus"><option value="">Все</option><option value="completed">completed</option><option value="refunded">refunded</option></select></div>
+            <div class="field"><label>from</label><input type="datetime-local" id="pFrom" /></div>
+            <div class="field"><label>to</label><input type="datetime-local" id="pTo" /></div>
+          </div>
+          <button class="btn alt" id="loadPurchasesBtn">Применить фильтр</button>
+          ${renderTable([
+            { label: 'Дата', key: 'created_at', render: r => fmtDate(r.created_at) },
+            { label: 'User', key: 'user_id' },
+            { label: 'Тариф', key: 'tariff_name' },
+            { label: 'Токены', key: 'tokens_credited' },
+            { label: '⭐', key: 'stars_paid' },
+            { label: 'Статус', key: 'status' },
+          ], rows)}
+        `;
+
+        document.getElementById('pStatus').value = state.cache.pFilterStatus || '';
+
+        document.getElementById('loadPurchasesBtn').onclick = async () => {
+          try {
+            const payload = {
+              page: 0,
+              limit: 100,
+              userId: document.getElementById('pUser').value || null,
+              status: document.getElementById('pStatus').value || null,
+              fromDate: document.getElementById('pFrom').value || null,
+              toDate: document.getElementById('pTo').value || null,
+            };
+            state.cache.pFilterUser = payload.userId || '';
+            state.cache.pFilterStatus = payload.status || '';
+            const data = await apiFetch('/api/admin/purchases/list', payload);
+            state.cache.purchases = data.items || [];
+            renderEditor();
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'admins') {
+        const rows = state.cache.admins || [];
+        editorEl.innerHTML = `
+          <div class="grid">
+            <div class="field"><label>admin_id</label><input id="admId" type="number" /></div>
+            <div class="field"><label>role</label><select id="admRole"><option value="moderator">moderator</option><option value="owner">owner</option></select></div>
+          </div>
+          <button class="btn" id="admSaveBtn">Добавить / обновить</button>
+          ${renderTable([
+            { label: 'admin_id', key: 'admin_id' },
+            { label: 'role', key: 'role' },
+            { label: 'active', key: 'is_active' },
+            { label: 'created', key: 'created_at', render: r => fmtDate(r.created_at) },
+          ], rows)}
+        `;
+        document.getElementById('admSaveBtn').onclick = async () => {
+          try {
+            const adminId = parseInt(document.getElementById('admId').value, 10);
+            const role = document.getElementById('admRole').value;
+            await apiFetch('/api/admin/admins/upsert', { adminId, role, isActive: true });
+            setStatus('Админ обновлён');
+            await loadSection();
+          } catch (e) { setStatus(e.message, false); }
+        };
+        return;
+      }
+
+      if (state.section === 'audit') {
+        const rows = state.cache.audit || [];
+        editorEl.innerHTML = renderTable([
+          { label: 'Дата', key: 'created_at', render: r => fmtDate(r.created_at) },
+          { label: 'admin_id', key: 'admin_id' },
+          { label: 'action', key: 'action' },
+          { label: 'entity', key: 'entity' },
+          { label: 'entity_id', key: 'entity_id' },
+          { label: 'before', key: 'before_json', render: r => `<span class="mono">${JSON.stringify(r.before_json || {}).slice(0, 120)}</span>` },
+          { label: 'after', key: 'after_json', render: r => `<span class="mono">${JSON.stringify(r.after_json || {}).slice(0, 120)}</span>` },
+        ], rows);
+      }
+    };
+
+    const loadTokenHistory = async (userId, extra = {}) => {
+      const data = await apiFetch('/api/admin/tokens/history', {
+        userId,
+        page: 0,
+        limit: 100,
+        ...extra,
+      });
+      state.cache.tokenHistory = data.items || [];
+    };
+
+    const loadSection = async () => {
+      if (!hasInitData) {
+        editorEl.innerHTML = '<p class="note">Откройте админку через кнопку в Telegram (/admin). Без initData API недоступно.</p>';
+        listEl.innerHTML = '<div class="list-item">Нет Telegram initData</div>';
+        setStatus('Нет Telegram контекста', false);
+        return;
+      }
+
+      setStatus('Загрузка...');
+      const q = (queryInput.value || '').trim();
+      state.query = q;
+      state.items = [];
+      state.selectedKey = null;
+
+      try {
+        if (state.section === 'content') {
+          const data = await apiFetch('/api/admin/content/list');
+          state.items = (data.items || []).filter(x => !q || x.key.includes(q)).map(x => ({ ...x, _key: x.key, _label: x.key }));
+        } else if (state.section === 'prices') {
+          const data = await apiFetch('/api/admin/prices/list');
+          state.items = (data.items || []).filter(x => !q || x.action_key.includes(q)).map(x => ({ ...x, _key: x.action_key, _label: `${x.action_key} (${x.tokens})` }));
+        } else if (state.section === 'tariffs') {
+          const data = await apiFetch('/api/admin/tariffs/list');
+          state.items = (data.items || []).filter(x => !q || `${x.name}`.toLowerCase().includes(q.toLowerCase())).map(x => ({ ...x, _key: String(x.id), _label: `#${x.id} ${x.name}` }));
+        } else if (state.section === 'users') {
+          const data = await apiFetch('/api/admin/users/list', { query: q, page: state.page, limit: state.limit });
+          state.items = (data.users || []).map(x => ({
+            ...x,
+            _key: String(x.telegram_id),
+            _label: `${x.telegram_id} ${x.username ? '@' + x.username : ''}${x.is_banned ? ' [BAN]' : ''}`,
+          }));
+        } else if (state.section === 'tokens') {
+          const seedUser = q && /^\d+$/.test(q) ? parseInt(q, 10) : 0;
+          const target = seedUser || 0;
+          state.items = [{ _key: String(target), _label: target ? `user ${target}` : 'Выберите user_id через поиск' }];
+          state.cache.tokenHistory = [];
+          if (target) await loadTokenHistory(target);
+        } else if (state.section === 'referrals') {
+          const data = await apiFetch('/api/admin/referrals/top', { limit: 200 });
+          state.items = (data.items || []).filter(x => !q || String(x.referrer_id).includes(q)).map(x => ({
+            ...x,
+            _key: String(x.referrer_id),
+            _label: `referrer ${x.referrer_id} (${x.referrals_count})`,
+          }));
+          state.cache.userReferrals = [];
+        } else if (state.section === 'purchases') {
+          const data = await apiFetch('/api/admin/purchases/list', { page: 0, limit: 100 });
+          state.cache.purchases = data.items || [];
+          state.items = [{ _key: 'purchases', _label: `Покупки (${state.cache.purchases.length})` }];
+        } else if (state.section === 'admins') {
+          const data = await apiFetch('/api/admin/admins/list');
+          state.cache.admins = data.items || [];
+          state.items = [{ _key: 'admins', _label: `Админы (${state.cache.admins.length})` }];
+        } else if (state.section === 'audit') {
+          const data = await apiFetch('/api/admin/audit/list', { page: state.page, limit: state.limit });
+          state.cache.audit = data.items || [];
+          state.items = [{ _key: 'audit', _label: `Лог (${state.cache.audit.length})` }];
+        }
+
+        state.selectedKey = state.items[0]?._key || null;
+        renderList();
+        renderEditor();
+        setStatus('Готово');
+      } catch (e) {
+        listEl.innerHTML = `<div class="list-item">Ошибка: ${e.message}</div>`;
+        editorEl.innerHTML = '<p class="note">Не удалось загрузить раздел. Проверьте права и доступ к API.</p>';
+        setStatus(e.message, false);
+      }
+    };
+
+    queryInput.onkeydown = (ev) => {
+      if (ev.key === 'Enter') loadSection();
+    };
+
+    prevBtn.onclick = async () => {
+      state.page = Math.max(0, state.page - 1);
+      await loadSection();
+    };
+
+    nextBtn.onclick = async () => {
+      state.page += 1;
+      await loadSection();
+    };
+
+    buildNav();
+    selectSection('content');
+  </script>
 </body>
 </html>

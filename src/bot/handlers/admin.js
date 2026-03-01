@@ -88,7 +88,7 @@ export const setupAdmin = (bot) => {
         await ctx.reply('❌ Введите положительное число токенов.', { parse_mode: 'HTML' });
         return;
       }
-      await adminUpdatePrice(key, value);
+      await adminUpdatePrice(key, { tokens: value });
       await ctx.reply(`✅ token_prices[${key}] → ${value} токенов.`, { parse_mode: 'HTML' });
       lastAdminMode.delete(uid);
       return;

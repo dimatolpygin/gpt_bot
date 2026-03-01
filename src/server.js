@@ -8,7 +8,15 @@ import { getBot } from './services/botInstance.js';
 import { getConvById, getMessages, getTemplates, getTemplateById } from './services/supabase.js';
 import { adminListContent, adminUpdateContent,
          adminListPrices,  adminUpdatePrice,
-         adminListTariffs, adminUpdateTariff } from './services/supabase_admin.js';
+         adminListTariffs, adminUpdateTariff,
+         resolveAdminRole, roleAtLeast, logAdminAction,
+         adminListUsers, adminBanUser, adminUnbanUser,
+         adminResetUserSettings, adminDeleteUserDialogs,
+         adminAdjustTokens, adminListTokenTransactions,
+         adminReorderTariffs, adminTopReferrers,
+         adminUserReferrals, adminListPurchases,
+         adminListAudit, adminListAdmins, adminUpsertAdmin,
+         adminFindUser } from './services/supabase_admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app       = express();
@@ -128,15 +136,59 @@ app.post('/api/history', async (req, res) => {
 });
 
 // ─── Admin WebApp & API ─────────────────────────────────────────────
-const adminIds = (config.ADMIN_IDS || '')
-  .split(',')
-  .map(s => parseInt(s.trim(), 10))
-  .filter(Boolean);
+const requireAdmin = async (req, res, minRole = 'moderator') => {
+  const { initData } = req.body || {};
+  const user = validateInitData(initData);
+  if (!user) {
+    res.status(403).json({ ok: false, error: 'Invalid auth' });
+    return null;
+  }
 
-const isAdminUser = (user) => {
-  if (!user || !user.id) return false;
-  if (!adminIds.length) return false;
-  return adminIds.includes(user.id);
+  let role = 'none';
+  try {
+    role = await resolveAdminRole(user.id);
+  } catch (err) {
+    console.error('[Admin] role resolve error:', err.message);
+    res.status(500).json({ ok: false, error: 'Role resolve failed' });
+    return null;
+  }
+
+  if (!roleAtLeast(role, minRole)) {
+    res.status(403).json({ ok: false, error: 'Forbidden' });
+    return null;
+  }
+
+  return { user, role };
+};
+
+const parsePage = (raw) => Math.max(0, parseInt(raw, 10) || 0);
+const parseLimit = (raw, fallback = 20, max = 100) => {
+  const value = parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(value, max);
+};
+
+const clearUserRedisState = async (userId) => {
+  const uid = parseInt(userId, 10);
+  if (!uid) return;
+  const keys = [
+    `u:${uid}:conv`,
+    `u:${uid}:page`,
+    `u:${uid}:busy`,
+    `u:${uid}:model`,
+    `u:${uid}:websearch`,
+    `think:${uid}`,
+  ];
+
+  const nbPattern = `nb:${uid}:*`;
+  const vidPattern = `vid:${uid}:*`;
+  const [nbKeys, vidKeys] = await Promise.all([
+    redis.keys(nbPattern),
+    redis.keys(vidPattern),
+  ]);
+
+  const all = [...keys, ...nbKeys, ...vidKeys];
+  if (all.length) await redis.del(...all);
 };
 
 app.get('/admin', (req, res) => {
@@ -145,9 +197,8 @@ app.get('/admin', (req, res) => {
 
 app.post('/api/admin/content/list', async (req, res) => {
   try {
-    const { initData } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const items = await adminListContent();
     res.json({ ok:true, items });
   } catch (err) {
@@ -158,11 +209,20 @@ app.post('/api/admin/content/list', async (req, res) => {
 
 app.post('/api/admin/content/update', async (req, res) => {
   try {
-    const { initData, key, text } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { key, text } = req.body || {};
     if (!key) return res.status(400).json({ ok:false, error:'key required' });
+    const before = (await adminListContent()).find(x => x.key === key) || null;
     const row = await adminUpdateContent(key, text || '');
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'update_content',
+      entity: 'bot_content',
+      entityId: key,
+      before,
+      after: row,
+    });
     res.json({ ok:true, row });
   } catch (err) {
     console.error('[API admin content update]', err.message);
@@ -172,9 +232,8 @@ app.post('/api/admin/content/update', async (req, res) => {
 
 app.post('/api/admin/prices/list', async (req, res) => {
   try {
-    const { initData } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const items = await adminListPrices();
     res.json({ ok:true, items });
   } catch (err) {
@@ -185,11 +244,20 @@ app.post('/api/admin/prices/list', async (req, res) => {
 
 app.post('/api/admin/prices/update', async (req, res) => {
   try {
-    const { initData, actionKey, tokens } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { actionKey, tokens, active } = req.body || {};
     if (!actionKey) return res.status(400).json({ ok:false, error:'actionKey required' });
-    const row = await adminUpdatePrice(actionKey, parseInt(tokens,10)||1);
+    const before = (await adminListPrices()).find(x => x.action_key === actionKey) || null;
+    const row = await adminUpdatePrice(actionKey, { tokens, active });
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'update_price',
+      entity: 'token_prices',
+      entityId: actionKey,
+      before,
+      after: row,
+    });
     res.json({ ok:true, row });
   } catch (err) {
     console.error('[API admin prices update]', err.message);
@@ -199,9 +267,8 @@ app.post('/api/admin/prices/update', async (req, res) => {
 
 app.post('/api/admin/tariffs/list', async (req, res) => {
   try {
-    const { initData } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res);
+    if (!auth) return;
     const items = await adminListTariffs();
     res.json({ ok:true, items });
   } catch (err) {
@@ -212,16 +279,331 @@ app.post('/api/admin/tariffs/list', async (req, res) => {
 
 app.post('/api/admin/tariffs/update', async (req, res) => {
   try {
-    const { initData, id, patch } = req.body || {};
-    const user = validateInitData(initData);
-    if (!isAdminUser(user)) return res.status(403).json({ ok:false, error:'Forbidden' });
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { id, patch } = req.body || {};
     const tid = parseInt(id, 10);
     if (!tid) return res.status(400).json({ ok:false, error:'id required' });
+    const before = (await adminListTariffs()).find(x => x.id === tid) || null;
     const row = await adminUpdateTariff(tid, patch || {});
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'update_tariff',
+      entity: 'bot_tariffs',
+      entityId: String(tid),
+      before,
+      after: row,
+    });
     res.json({ ok:true, row });
   } catch (err) {
     console.error('[API admin tariffs update]', err.message);
     res.status(500).json({ ok:false, error:err.message });
+  }
+});
+
+app.post('/api/admin/tariffs/reorder', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ ok: false, error: 'items required' });
+    }
+    await adminReorderTariffs(items);
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'reorder_tariffs',
+      entity: 'bot_tariffs',
+      entityId: null,
+      before: null,
+      after: items,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[API admin tariffs reorder]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/tokens/adjust', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+
+    const { userId, username, amount, reason } = req.body || {};
+    let targetId = parseInt(userId, 10);
+    if (!targetId && username) {
+      const found = await adminFindUser({ username });
+      if (!found) return res.status(404).json({ ok: false, error: 'User not found' });
+      targetId = found.telegram_id;
+    }
+    if (!targetId) return res.status(400).json({ ok: false, error: 'userId or username required' });
+
+    const { before, after } = await adminAdjustTokens({
+      userId: targetId,
+      amount,
+      reason,
+      actionKey: 'admin_adjust',
+    });
+
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'adjust_tokens',
+      entity: 'user_tokens',
+      entityId: String(targetId),
+      before,
+      after,
+    });
+
+    res.json({ ok: true, user_id: targetId, before, after });
+  } catch (err) {
+    console.error('[API admin tokens adjust]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/tokens/history', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+
+    const { userId, page, limit, type, fromDate, toDate } = req.body || {};
+    const result = await adminListTokenTransactions({
+      userId: userId ? parseInt(userId, 10) : null,
+      page: parsePage(page),
+      limit: parseLimit(limit, 30, 200),
+      type: type || 'all',
+      fromDate: fromDate || null,
+      toDate: toDate || null,
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[API admin tokens history]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/list', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { query, page, limit } = req.body || {};
+    const result = await adminListUsers({ query: query || '', page: parsePage(page), limit: parseLimit(limit, 20, 100) });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[API admin users list]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/ban', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { userId, reason } = req.body || {};
+    const uid = parseInt(userId, 10);
+    if (!uid) return res.status(400).json({ ok: false, error: 'userId required' });
+
+    const row = await adminBanUser({ userId: uid, reason: reason || '', adminId: auth.user.id });
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'ban_user',
+      entity: 'bot_bans',
+      entityId: String(uid),
+      before: null,
+      after: row,
+    });
+
+    const bot = getBot();
+    await bot?.telegram.sendMessage(uid, `🚫 Ваш аккаунт заблокирован администратором.${reason ? `\nПричина: ${reason}` : ''}`).catch(() => {});
+
+    res.json({ ok: true, row });
+  } catch (err) {
+    console.error('[API admin users ban]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/unban', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { userId } = req.body || {};
+    const uid = parseInt(userId, 10);
+    if (!uid) return res.status(400).json({ ok: false, error: 'userId required' });
+
+    const rows = await adminUnbanUser({ userId: uid });
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'unban_user',
+      entity: 'bot_bans',
+      entityId: String(uid),
+      before: rows,
+      after: { is_active: false },
+    });
+
+    const bot = getBot();
+    await bot?.telegram.sendMessage(uid, '✅ Доступ к боту восстановлен.').catch(() => {});
+
+    res.json({ ok: true, count: rows.length });
+  } catch (err) {
+    console.error('[API admin users unban]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/reset-settings', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { userId } = req.body || {};
+    const uid = parseInt(userId, 10);
+    if (!uid) return res.status(400).json({ ok: false, error: 'userId required' });
+
+    await adminResetUserSettings(uid);
+    await clearUserRedisState(uid);
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'reset_user_settings',
+      entity: 'bot_user_settings',
+      entityId: String(uid),
+      before: null,
+      after: { reset: true },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[API admin users reset-settings]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/delete-dialogs', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { userId } = req.body || {};
+    const uid = parseInt(userId, 10);
+    if (!uid) return res.status(400).json({ ok: false, error: 'userId required' });
+
+    await adminDeleteUserDialogs(uid);
+    await clearUserRedisState(uid);
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'delete_user_dialogs',
+      entity: 'bot_conversations',
+      entityId: String(uid),
+      before: null,
+      after: { deleted: true },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[API admin users delete-dialogs]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/referrals/top', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { limit } = req.body || {};
+    const items = await adminTopReferrers({ limit: parseLimit(limit, 20, 200) });
+    res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[API admin referrals top]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/referrals/user', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { userId, page, limit } = req.body || {};
+    const uid = parseInt(userId, 10);
+    if (!uid) return res.status(400).json({ ok: false, error: 'userId required' });
+    const result = await adminUserReferrals({ userId: uid, page: parsePage(page), limit: parseLimit(limit, 50, 200) });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[API admin referrals user]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/purchases/list', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'moderator');
+    if (!auth) return;
+    const { page, limit, userId, status, fromDate, toDate } = req.body || {};
+    const result = await adminListPurchases({
+      page: parsePage(page),
+      limit: parseLimit(limit, 50, 200),
+      userId: userId ? parseInt(userId, 10) : null,
+      status: status || null,
+      fromDate: fromDate || null,
+      toDate: toDate || null,
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[API admin purchases list]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/audit/list', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { page, limit } = req.body || {};
+    const result = await adminListAudit({ page: parsePage(page), limit: parseLimit(limit, 30, 200) });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[API admin audit list]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/admins/list', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const items = await adminListAdmins();
+    res.json({ ok: true, items });
+  } catch (err) {
+    console.error('[API admin admins list]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/admins/upsert', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { adminId, role, isActive } = req.body || {};
+    const aid = parseInt(adminId, 10);
+    if (!aid) return res.status(400).json({ ok: false, error: 'adminId required' });
+    if (!['owner', 'moderator'].includes(role)) {
+      return res.status(400).json({ ok: false, error: 'role must be owner|moderator' });
+    }
+
+    const before = (await adminListAdmins()).find(x => x.admin_id === aid) || null;
+    const row = await adminUpsertAdmin({ adminId: aid, role, isActive: isActive !== false });
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'upsert_admin',
+      entity: 'bot_admins',
+      entityId: String(aid),
+      before,
+      after: row,
+    });
+
+    res.json({ ok: true, row });
+  } catch (err) {
+    console.error('[API admin admins upsert]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
