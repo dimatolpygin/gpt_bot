@@ -1,9 +1,12 @@
 import { getTariffs, savePurchase } from '../../services/supabase.js';
 import { creditTokens } from '../../services/tokens.js';
+import { config } from '../../config/index.js';
+
+const hasYooKassa = !!(config.YOOKASSA_SHOP_ID && config.YOOKASSA_SECRET_KEY && config.YOOKASSA_RETURN_URL);
 
 export const setupShop = (bot) => {
 
-  // ── Показ тарифов ─────────────────────────────────────────────────
+  // ── Главное меню покупки — выбор способа оплаты ──────────────────
   bot.hears('💳 Купить генерации', async (ctx) => {
     let tariffs;
     try {
@@ -20,23 +23,71 @@ export const setupShop = (bot) => {
       `${t.name}\n💰 ${t.tokens} токенов — ${t.stars} ⭐`
     ).join('\n\n');
 
-    const buttons = tariffs.map(t => ([{
-      text: `${t.name} — ${t.stars} ⭐`,
-      callback_data: `buy:${t.id}`,
-    }]));
+    const payMethodsRow = [
+      { text: '⭐ Telegram Stars', callback_data: 'pay_method:stars' },
+      { text: '🇷🇺 ЮKassa (карта/СБП)', callback_data: 'pay_method:yookassa' },
+    ];
 
     await ctx.reply(
-      `🛒 *Пополнение токенов*\n\nВыберите тариф:\n\n${lines}`,
+      `🛒 *Пополнение токенов*\n\nВыберите способ оплаты, затем тариф:\n\n${lines}`,
       {
         parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: buttons },
+        reply_markup: {
+          inline_keyboard: [
+            payMethodsRow,
+          ],
+        },
       }
     );
   });
 
-  // ── Нажата кнопка тарифа → Stars инвойс ──────────────────────────
-  bot.action(/^buy:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
+  // ── Выбор способа оплаты ─────────────────────────────────────────
+  bot.action(/^pay_method:(stars|yookassa)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const method = ctx.match[1];
+
+    let tariffs;
+    try {
+      tariffs = await getTariffs();
+    } catch (e) {
+      return ctx.reply('❌ Не удалось загрузить тарифы. Попробуйте позже.');
+    }
+
+    if (!tariffs.length) {
+      return ctx.reply('😔 Тарифы временно недоступны.');
+    }
+
+    const methodLabel = method === 'stars'
+      ? '⭐ Telegram Stars'
+      : '🇷🇺 ЮKassa (карта/СБП)';
+
+    const lines = tariffs.map(t =>
+      `${t.name}\n💰 ${t.tokens} токенов — ${t.stars} ⭐`
+    ).join('\n\n');
+
+    const buttons = tariffs.map(t => ([{
+      text: `${t.name} — ${t.stars} ⭐`,
+      callback_data: `buy_${method}:${t.id}`,
+    }]));
+
+    await ctx.editMessageText(
+      `🛒 *Пополнение токенов*\n\nСпособ оплаты: *${methodLabel}*\n\nВыберите тариф:\n\n${lines}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons },
+      }
+    ).catch(() => ctx.reply(
+      `🛒 *Пополнение токенов*\n\nСпособ оплаты: *${methodLabel}*\n\nВыберите тариф:\n\n${lines}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons },
+      }
+    ));
+  });
+
+  // ── Покупка через Stars ──────────────────────────────────────────
+  bot.action(/^buy_stars:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
     const tariffId = parseInt(ctx.match[1]);
 
     let tariffs;
@@ -59,8 +110,38 @@ export const setupShop = (bot) => {
     });
   });
 
-  // ── Успешная оплата → начислить токены + записать покупку ─────────
-  // pre_checkout_query обрабатывается в index.js ДО authMiddleware
+  // ── Покупка через YooKassa — пока заглушка ───────────────────────
+  bot.action(/^buy_yookassa:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const tariffId = parseInt(ctx.match[1]);
+
+    let tariffs;
+    try {
+      tariffs = await getTariffs();
+    } catch (e) {
+      return ctx.reply('❌ Ошибка загрузки тарифа.');
+    }
+
+    const tariff = tariffs.find(t => t.id === tariffId);
+    if (!tariff) return ctx.reply('❌ Тариф не найден.');
+
+    if (!hasYooKassa) {
+      return ctx.reply(
+        '🛠 Здесь будет оплата через ЮKassa (карты/СБП).\n\n' +
+        'Сейчас интеграция не настроена. Заполните YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY и YOOKASSA_RETURN_URL в .env, ' +
+        'а затем реализуйте создание платежа в services/yookassa.js.',
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    await ctx.reply(
+      '🛠 Заглушка: ЮKassa подключена, но логика создания платежа ещё не реализована.\n\n' +
+      'Сюда будет подставлена ссылка на оплату ЮKassa.',
+      { parse_mode: 'HTML' }
+    );
+  });
+
+  // ── pre_checkout_query обрабатывается в index.js ДО authMiddleware ─
   bot.on('successful_payment', async (ctx) => {
     const sp       = ctx.message.successful_payment;
     const payload  = sp.invoice_payload;
