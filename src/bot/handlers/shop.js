@@ -20,7 +20,10 @@ export const setupShop = (bot) => {
     }
 
     const lines = tariffs.map(t =>
-      `${t.name}\n💰 ${t.tokens} токенов — ${t.stars} ⭐`
+      `${t.name}\n` +
+      `💰 ${t.tokens} токенов\n` +
+      `⭐ Telegram Stars: ${t.stars}\n` +
+      `💵 Оплата картой/СБП (RUB): ${t.price_rub}`
     ).join('\n\n');
 
     const payMethodsRow = [
@@ -61,12 +64,17 @@ export const setupShop = (bot) => {
       ? '⭐ Telegram Stars'
       : '🇷🇺 ЮKassa (карта/СБП)';
 
-    const lines = tariffs.map(t =>
-      `${t.name}\n💰 ${t.tokens} токенов — ${t.stars} ⭐`
-    ).join('\n\n');
+    const lines = tariffs.map(t => {
+      if (method === 'stars') {
+        return `${t.name}\n💰 ${t.tokens} токенов — ${t.stars} ⭐`;
+      }
+      return `${t.name}\n💰 ${t.tokens} токенов — ${t.price_rub} ₽`;
+    }).join('\n\n');
 
     const buttons = tariffs.map(t => ([{
-      text: `${t.name} — ${t.stars} ⭐`,
+      text: method === 'stars'
+        ? `${t.name} — ${t.stars} ⭐`
+        : `${t.name} — ${t.price_rub} ₽`,
       callback_data: `buy_${method}:${t.id}`,
     }]));
 
@@ -110,7 +118,7 @@ export const setupShop = (bot) => {
     });
   });
 
-  // ── Покупка через YooKassa — пока заглушка ───────────────────────
+  // ── Покупка через YooKassa — заглушка ────────────────────────────
   bot.action(/^buy_yookassa:(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const tariffId = parseInt(ctx.match[1]);
@@ -125,20 +133,7 @@ export const setupShop = (bot) => {
     const tariff = tariffs.find(t => t.id === tariffId);
     if (!tariff) return ctx.reply('❌ Тариф не найден.');
 
-    if (!hasYooKassa) {
-      return ctx.reply(
-        '🛠 Здесь будет оплата через ЮKassa (карты/СБП).\n\n' +
-        'Сейчас интеграция не настроена. Заполните YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY и YOOKASSA_RETURN_URL в .env, ' +
-        'а затем реализуйте создание платежа в services/yookassa.js.',
-        { parse_mode: 'HTML' }
-      );
-    }
-
-    await ctx.reply(
-      '🛠 Заглушка: ЮKassa подключена, но логика создания платежа ещё не реализована.\n\n' +
-      'Сюда будет подставлена ссылка на оплату ЮKassa.',
-      { parse_mode: 'HTML' }
-    );
+    return ctx.reply('Здесь будет ваша платёжка');
   });
 
   // ── pre_checkout_query обрабатывается в index.js ДО authMiddleware ─
