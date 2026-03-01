@@ -7,8 +7,10 @@ export const config = {
   SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY,
   REDIS_URL:         process.env.REDIS_URL || 'redis://localhost:6379',
   PORT:              process.env.PORT || 3000,
+  WEBAPP_URL_RAW:    process.env.WEBAPP_URL || '',
   WEBAPP_URL:        process.env.WEBAPP_URL || 'http://localhost:3000',
   jsAPP_URL:         process.env.APP_URL || '',
+  APP_URL_RAW:        process.env.APP_URL || '',
   APP_URL:           process.env.APP_URL || 'http://localhost:3000',
   DIALOGS_PER_PAGE:  5,
   MAX_HISTORY:       50,          // messages sent to OpenAI as context

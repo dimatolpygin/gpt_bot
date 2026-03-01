@@ -1,7 +1,7 @@
 import { Markup } from 'telegraf';
 import { config } from '../../config/index.js';
 
-const baseUrl = (config.WEBAPP_URL || config.APP_URL || '').replace(/\/+$/, '');
+const baseUrl = (config.WEBAPP_URL_RAW || config.APP_URL_RAW || '').replace(/\/+$/, '');
 const adminUrl = baseUrl ? `${baseUrl}/admin` : '';
 
 export const adminKb = () => {
