@@ -5,6 +5,7 @@ import { setupNanoBanana } from './nanoBanana.js';
 import { setupVideoGen }   from './videoGen.js';
 import { setupProfile }    from './profile.js';
 import { setupShop }       from './shop.js';
+import { setupAdmin }      from './admin.js';
 
 export const setupHandlers = (bot) => {
   setupCallbacks(bot);
@@ -12,6 +13,7 @@ export const setupHandlers = (bot) => {
   setupVideoGen(bot);
   setupProfile(bot);
   setupShop(bot);
+  setupAdmin(bot);
   setupStart(bot);
   setupChat(bot);
 };
