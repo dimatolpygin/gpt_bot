@@ -225,3 +225,54 @@ export const getPurchaseHistory = async (userId, limit = 10) => {
   if (error) throw error;
   return data || [];
 };
+
+// ─── Реферальная система ────────────────────────────────────────────────
+
+export const getUserById = async (userId) => {
+  const { data, error } = await sb
+    .from('bot_users')
+    .select('*')
+    .eq('telegram_id', userId)
+    .single();
+  if (error && error.code !== 'PGRST116') return null;
+  return data || null;
+};
+
+export const getReferralByReferee = async (refereeId) => {
+  const { data, error } = await sb
+    .from('bot_referrals')
+    .select('*')
+    .eq('referee_id', refereeId)
+    .single();
+  if (error && error.code !== 'PGRST116') return null;
+  return data || null;
+};
+
+export const createReferral = async ({ referrerId, refereeId, tokens }) => {
+  if (referrerId === refereeId) return null;
+  try {
+    const { data, error } = await sb
+      .from('bot_referrals')
+      .insert({
+        referrer_id:    referrerId,
+        referee_id:     refereeId,
+        tokens_awarded: tokens,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  } catch (e) {
+    console.warn('[Referrals] createReferral error:', e.message);
+    return null;
+  }
+};
+
+export const countReferrals = async (referrerId) => {
+  const { count, error } = await sb
+    .from('bot_referrals')
+    .select('id', { count: 'exact', head: true })
+    .eq('referrer_id', referrerId);
+  if (error) throw error;
+  return count || 0;
+};

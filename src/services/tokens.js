@@ -90,3 +90,14 @@ export const notEnoughMsg = ({ balance, needed, label }) =>
   `Нужно: <b>${needed} 🪙</b>\n` +
   `Ваш баланс: <b>${balance} 🪙</b>\n\n` +
   `Нажмите <b>💳 Купить генерации</b> в меню для пополнения.`;
+
+// ─── Реферальный бонус ────────────────────────────────────────────────
+
+export const getReferralBonus = async () => {
+  const { data } = await supabase
+    .from('token_config')
+    .select('value')
+    .eq('key', 'referral_bonus')
+    .single();
+  return parseInt(data?.value || '0', 10);
+};
