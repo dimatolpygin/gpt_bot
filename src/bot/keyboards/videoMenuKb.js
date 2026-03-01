@@ -9,30 +9,32 @@ export const MODELS = {
   seedance15: { label:'🌿 Seedance V1.5 Pro Spicy',     durations:[3,5,7,10],    aspects:['16:9','9:16','1:1','4:3'],        hasCamera:false, hasSound:false },
   kling:      { label:'⚡ Kling Video O3 Pro',           durations:[3,5,7,10,15], aspects:null,                               hasCamera:false, hasSound:true  },
   hailuo:     { label:'🌊 Hailuo 2.3 Pro 1080p',        durations:[6,10],        aspects:null,                               hasCamera:false, hasSound:false },
+  sora:       { label:'🐉 OpenAI Sora 2 (I2V)',         durations:[5,10,15],     aspects:null,                               hasCamera:false, hasSound:false },
 };
 
 const b = (keys) => Promise.all(keys.map(([k, f]) => getBtn(k, f)));
 
-// cancelRow для всех шагов кроме первого — ведёт на vid_cancel
 const cancelRow = (back) => [
   { text: '◀️ Назад', callback_data: back },
   { text: '❌ Отмена', callback_data: 'vid_cancel' },
 ];
 
 export const vidModelKb = async () => {
-  const [m1, m2, m3, m4, toMenu] = await b([
+  const [m1, m2, m3, m4, m5, toMenu] = await b([
     ['btn_vid_model_seedance1',  '🌱 Seedance V1 Pro 720p'],
     ['btn_vid_model_seedance15', '🌿 Seedance V1.5 Pro Spicy'],
     ['btn_vid_model_kling',      '⚡ Kling Video O3 Pro'],
     ['btn_vid_model_hailuo',     '🌊 Hailuo 2.3 Pro 1080p'],
-    ['btn_vid_to_menu',          '🏠 В меню'],   // ← было "Отмена", стало "В меню"
+    ['btn_vid_model_sora',       '🐉 OpenAI Sora 2 (I2V)'],
+    ['btn_vid_to_menu',          '🏠 В меню'],
   ]);
   return Markup.inlineKeyboard([
     [Markup.button.callback(m1, 'vid_model:seedance1')],
     [Markup.button.callback(m2, 'vid_model:seedance15')],
     [Markup.button.callback(m3, 'vid_model:kling')],
     [Markup.button.callback(m4, 'vid_model:hailuo')],
-    [Markup.button.callback(toMenu, 'vid_menu')],  // ← vid_menu вместо vid_cancel
+    [Markup.button.callback(m5, 'vid_model:sora')],
+    [Markup.button.callback(toMenu, 'vid_menu')],
   ]);
 };
 
