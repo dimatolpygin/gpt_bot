@@ -14,13 +14,13 @@ import {
   nbGptQualityKb, nbGptSizeKb, nbFlux2SizeKb,
   nbPhotoNextKb, nbResultKb, MODEL_LABELS,
 } from '../keyboards/imageMenuKb.js';
-import { spendTokens, notEnoughMsg } from '../../services/tokens.js';
+import { spendTokens, notEnoughMsg, getPrice } from '../../services/tokens.js';
 
 const TG_MAX = 9 * 1024 * 1024;
 const decSize     = (s) => s.replace('x', ':');
 const decStarSize = (s) => s.replace(/S/g, '*');
 const cancelRow   = [{ text: '❌ Отмена', callback_data: 'nb_cancel' }];
-const TPL_BACK    = 'nb_tpl_back';   // кнопка "Назад" в шаблонном режиме → к выбору модели
+const TPL_BACK    = 'nb_tpl_back';
 
 const cleanState = async (uid) => {
   for (const k of ['state','model','mode','resol','size','photos',
@@ -34,7 +34,6 @@ const imgActionKey = (model, resol) => {
   return `img_${model}`;
 };
 
-// Безопасная правка сообщения (текст ИЛИ подпись к фото)
 const safeEditMsg = async (ctx, text) => {
   const msg = ctx.callbackQuery?.message;
   if (msg?.photo || msg?.video || msg?.document) {
@@ -58,6 +57,22 @@ const prepareForTg  = async (buf) => {
   let q = 85, result = buf;
   while (q >= 30) { result = await sharp(buf).jpeg({ quality: q }).toBuffer(); if (result.length <= TG_MAX) break; q -= 15; }
   return { buffer: result, compressed: true };
+};
+
+// ── Показать сообщение с запросом промта + стоимость ─────────────────
+const editWithPrice = async (ctx, cmsKey, kb, actionKey, vars = {}) => {
+  const { text } = await cms(cmsKey, vars, '✏️ Напишите промт:');
+  const { tokens: price, label } = await getPrice(actionKey);
+  const msg = `${text}\n\n💰 Стоимость: <b>${price} 🪙</b>`;
+  await ctx.editMessageText(msg, { parse_mode: 'HTML', reply_markup: kb })
+    .catch(() => ctx.reply(msg, { parse_mode: 'HTML', reply_markup: kb }));
+};
+
+const sendWithPrice = async (ctx, cmsKey, kb, actionKey, vars = {}) => {
+  const { text } = await cms(cmsKey, vars, '✏️ Напишите промт:');
+  const { tokens: price, label } = await getPrice(actionKey);
+  const msg = `${text}\n\n💰 Стоимость: <b>${price} 🪙</b>`;
+  await ctx.reply(msg, { parse_mode: 'HTML', reply_markup: kb });
 };
 
 const generate = async (ctx, { model, mode, size, resol, photoUrls, prompt }) => {
@@ -112,13 +127,11 @@ const generateFromTemplate = async (ctx, uid, size) => {
 
 export const setupNanoBanana = (bot) => {
 
-  // ── Назад в шаблонном режиме → повторный выбор модели ─────────────
   bot.action(TPL_BACK, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cmsEdit(ctx, 'nb_model', await nbModelKb());
   });
 
-  // ── Выбор модели ──────────────────────────────────────────────────
   bot.action(/^nb_model:(nb1|nb2|sd5|gpt15e|flux2e)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model   = ctx.match[1];
@@ -128,7 +141,6 @@ export const setupNanoBanana = (bot) => {
 
     if (model === 'gpt15e') {
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
-      // backAction: в шаблоне → nb_tpl_back, иначе → nb_model:gpt15e (default)
       await cmsEdit(ctx, 'nb_quality', await nbGptQualityKb(tplMode === 'template' ? TPL_BACK : null));
     } else if (model === 'flux2e') {
       await redis.set(`nb:${uid}:mode`, 'img2img', 'EX', 600);
@@ -142,7 +154,6 @@ export const setupNanoBanana = (bot) => {
     }
   });
 
-  // ── Режим (nb1/nb2/sd5) ───────────────────────────────────────────
   bot.action(/^nb_mode:(nb1|nb2|sd5):(txt2img|img2img)$/, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const model = ctx.match[1], mode = ctx.match[2];
@@ -161,7 +172,6 @@ export const setupNanoBanana = (bot) => {
     const model = ctx.match[1], mode = ctx.match[2], resol = ctx.match[3];
     const tplMode = await redis.get(`nb:${ctx.from.id}:template_mode`);
     await redis.set(`nb:${ctx.from.id}:resol`, resol, 'EX', 600);
-    // В шаблоне кнопка "Назад" в размере → nb_tpl_back
     await cmsEdit(ctx, 'nb_size', await nbSizeKb(model, mode, resol, tplMode === 'template' ? TPL_BACK : null));
   });
 
@@ -179,8 +189,13 @@ export const setupNanoBanana = (bot) => {
       await redis.set(`nb:${uid}:state`, 'await_photo', 'EX', 600);
       await cmsEdit(ctx, 'nb_mode_img2img', backKb(`nb_mode:${model}:${mode}`));
     } else {
+      // txt2img → показываем запрос промта + стоимость
       await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
-      await cmsEdit(ctx, 'nb_mode_txt2img', backKb(`nb_size_back:${model}:${mode}:${resol}`));
+      await editWithPrice(
+        ctx, 'nb_mode_txt2img',
+        backKb(`nb_size_back:${model}:${mode}:${resol}`),
+        imgActionKey(model, resol)
+      );
     }
   });
 
@@ -240,7 +255,7 @@ export const setupNanoBanana = (bot) => {
     await cmsEdit(ctx, 'nb_size', await nbFlux2SizeKb(tplMode === 'template' ? TPL_BACK : null));
   });
 
-  // ── Фото загружено (обычный режим) ────────────────────────────────
+  // ── Фото загружено → переход к промту + стоимость ────────────────
   bot.action('nb_photos_done', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const uid   = ctx.from.id;
@@ -252,9 +267,12 @@ export const setupNanoBanana = (bot) => {
     const backCb = model === 'gpt15e' ? `nb_gpt_size_back:${resol}`
       : model === 'flux2e' ? 'nb_flux2_size_back'
       : `nb_size_back:${model}:${mode}:${resol}`;
-    await cmsEdit(ctx, 'nb_photos_done',
+    await editWithPrice(
+      ctx, 'nb_photos_done',
       { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] },
-      { '{n}': String(urls.length) });
+      imgActionKey(model, resol),
+      { '{n}': String(urls.length) }
+    );
   });
 
   bot.action('nb_repeat', async (ctx) => {
@@ -275,10 +293,14 @@ export const setupNanoBanana = (bot) => {
     await redis.set(`nb:${uid}:resol`,  last.resol || '1k', 'EX', 600);
     await redis.set(`nb:${uid}:photos`, JSON.stringify([last.resultUrl]), 'EX', 600);
     await redis.set(`nb:${uid}:state`,  'await_prompt',     'EX', 600);
-    await cmsSend(ctx, 'nb_edit_prompt', { inline_keyboard: [cancelRow] });
+    // Показываем запрос промта + стоимость
+    await sendWithPrice(
+      ctx, 'nb_edit_prompt',
+      { inline_keyboard: [cancelRow] },
+      imgActionKey(last.model, last.resol || '1k')
+    );
   });
 
-  // ── Отмена — работает и на photo-сообщениях ───────────────────────
   bot.action('nb_cancel', async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     await cleanState(ctx.from.id);
@@ -316,14 +338,18 @@ export const setupNanoBanana = (bot) => {
         : model === 'flux2e' ? 'nb_flux2_size_back'
         : `nb_size_back:${model}:${mode}:${resol}`;
       await redis.set(`nb:${uid}:state`, 'await_prompt', 'EX', 600);
-      await ctx.reply(`${text}\n\n⚠️ Лимит ${maxPhotos} фото. Напишите промт.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] } });
+      // Добавляем стоимость при достижении лимита фото
+      const { tokens: price } = await getPrice(imgActionKey(model, resol));
+      await ctx.reply(
+        `${text}\n\n⚠️ Лимит ${maxPhotos} фото. Напишите промт.\n\n💰 Стоимость: <b>${price} 🪙</b>`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Назад', callback_data: backCb }], cancelRow] } }
+      );
     } else {
       await ctx.reply(text, { parse_mode: 'HTML', reply_markup: (await nbPhotoNextKb(count)).reply_markup });
     }
   });
 
-  // ── Промт ────────────────────────────────────────────────────────
+  // ── Промт ─────────────────────────────────────────────────────────
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid = ctx.from.id;

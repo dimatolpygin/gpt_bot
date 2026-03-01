@@ -3,7 +3,7 @@ import { redis } from '../../services/redis.js';
 import fetch from 'node-fetch';
 import { cmsEdit, cmsSend, cms } from '../../services/contentHelper.js';
 import { seedanceI2V, seedance15SpicyI2V, klingI2V, hailuoI2V } from '../../services/wavespeed.js';
-import { spendTokens, notEnoughMsg } from '../../services/tokens.js';
+import { spendTokens, notEnoughMsg, getPrice } from '../../services/tokens.js';
 import {
   vidModelKb, vidDurationKb, vidAspectKb,
   vidCameraKb, vidSoundKb, vidResultKb,
@@ -108,6 +108,7 @@ export const setupVideoGen = (bot) => {
     await ctx.editMessageText('❌ Отменено.').catch(() => {});
   });
 
+  // ── Фото получено → запрос промта + стоимость ────────────────────
   bot.on('photo', async (ctx, next) => {
     const uid = ctx.from.id;
     if (await redis.get(`vid:${uid}:state`) !== 'await_photo') return next();
@@ -115,9 +116,19 @@ export const setupVideoGen = (bot) => {
     const fileUrl = await ctx.telegram.getFileLink(photo.file_id);
     await redis.set(`vid:${uid}:photo_url`, fileUrl.href, 'EX', 600);
     await redis.set(`vid:${uid}:state`, 'await_prompt', 'EX', 600);
-    await cmsSend(ctx, 'vid_photo_received', { inline_keyboard: [cancelRow] });
+
+    // Читаем модель и длительность для расчёта цены
+    const vidModel = await redis.get(`vid:${uid}:model`) || 'seedance1';
+    const vidDur   = await redis.get(`vid:${uid}:dur`)   || '5';
+    const { text: vidPhotoText } = await cms('vid_photo_received', {}, '📸 Фото получено! Напишите промт (или . чтобы пропустить):');
+    const { tokens: vidPrice }   = await getPrice(`vid_${vidModel}_${vidDur}`);
+    await ctx.reply(
+      `${vidPhotoText}\n\n💰 Стоимость: <b>${vidPrice} 🪙</b>`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [cancelRow] } }
+    );
   });
 
+  // ── Промт получен → генерация ─────────────────────────────────────
   bot.on('text', async (ctx, next) => {
     if (ctx.message.text.startsWith('/')) return next();
     const uid = ctx.from.id;
