@@ -302,15 +302,15 @@
     const hasInitData = Boolean(initData);
 
     const SECTIONS = [
-      { id: 'content', title: '📝 Контент бота', subtitle: 'Редактирование bot_content' },
-      { id: 'prices', title: '💰 Цены токенов', subtitle: 'token_prices: tokens + active' },
-      { id: 'tariffs', title: '📦 Тарифы', subtitle: 'bot_tariffs + сортировка' },
-      { id: 'users', title: '👤 Пользователи', subtitle: 'Поиск, бан, сброс, очистка диалогов' },
-      { id: 'tokens', title: '🪙 Операции токенов', subtitle: 'Начисление/списание + история' },
-      { id: 'referrals', title: '👥 Рефералы', subtitle: 'Топ и детализация по пользователю' },
-      { id: 'purchases', title: '🧾 Покупки', subtitle: 'История оплат с фильтрами' },
-      { id: 'admins', title: '🛡 Админы', subtitle: 'Роли owner/moderator' },
-      { id: 'audit', title: '📜 Аудит', subtitle: 'Лог действий админов' },
+      { id: 'content', title: 'Контент бота', subtitle: 'Редактирование bot_content' },
+      { id: 'prices', title: 'Цены токенов', subtitle: 'token_prices: tokens + active' },
+      { id: 'tariffs', title: 'Тарифы', subtitle: 'bot_tariffs + сортировка' },
+      { id: 'users', title: 'Пользователи', subtitle: 'Поиск, бан, сброс, очистка диалогов' },
+      { id: 'tokens', title: 'Операции токенов', subtitle: 'Начисление/списание + история' },
+      { id: 'referrals', title: 'Рефералы', subtitle: 'Топ и детализация по пользователю' },
+      { id: 'purchases', title: 'Покупки', subtitle: 'История оплат с фильтрами' },
+      { id: 'admins', title: 'Админы', subtitle: 'Роли owner/moderator' },
+      { id: 'audit', title: 'Аудит', subtitle: 'Лог действий админов' },
     ];
 
     const state = {
@@ -715,6 +715,7 @@
             <div class="field"><label>role</label><select id="admRole"><option value="moderator">moderator</option><option value="owner">owner</option></select></div>
           </div>
           <button class="btn" id="admSaveBtn">Добавить / обновить</button>
+          <button class="btn danger" id="admDeleteBtn">Удалить админа</button>
           ${renderTable([
             { label: 'admin_id', key: 'admin_id' },
             { label: 'role', key: 'role' },
@@ -728,6 +729,17 @@
             const role = document.getElementById('admRole').value;
             await apiFetch('/api/admin/admins/upsert', { adminId, role, isActive: true });
             setStatus('Админ обновлён');
+            await loadSection();
+          } catch (e) { setStatus(e.message, false); }
+        };
+
+        document.getElementById('admDeleteBtn').onclick = async () => {
+          try {
+            const adminId = parseInt(document.getElementById('admId').value, 10);
+            if (!adminId) throw new Error('Введите admin_id для удаления');
+            if (!confirm(`Удалить администратора ${adminId}?`)) return;
+            await apiFetch('/api/admin/admins/delete', { adminId });
+            setStatus('Админ удалён');
             await loadSection();
           } catch (e) { setStatus(e.message, false); }
         };

@@ -16,6 +16,7 @@ import { adminListContent, adminUpdateContent,
          adminReorderTariffs, adminTopReferrers,
          adminUserReferrals, adminListPurchases,
          adminListAudit, adminListAdmins, adminUpsertAdmin,
+         adminDeleteAdmin,
          adminFindUser } from './services/supabase_admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -603,6 +604,32 @@ app.post('/api/admin/admins/upsert', async (req, res) => {
     res.json({ ok: true, row });
   } catch (err) {
     console.error('[API admin admins upsert]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/admins/delete', async (req, res) => {
+  try {
+    const auth = await requireAdmin(req, res, 'owner');
+    if (!auth) return;
+    const { adminId } = req.body || {};
+    const aid = parseInt(adminId, 10);
+    if (!aid) return res.status(400).json({ ok: false, error: 'adminId required' });
+
+    const before = (await adminListAdmins()).find(x => x.admin_id === aid) || null;
+    const deleted = await adminDeleteAdmin(aid);
+    await logAdminAction({
+      adminId: auth.user.id,
+      action: 'delete_admin',
+      entity: 'bot_admins',
+      entityId: String(aid),
+      before,
+      after: { deleted: deleted.length || 0 },
+    });
+
+    res.json({ ok: true, deleted: deleted.length || 0 });
+  } catch (err) {
+    console.error('[API admin admins delete]', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

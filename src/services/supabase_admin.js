@@ -116,6 +116,48 @@ export const adminUpsertAdmin = async ({ adminId, role, isActive = true }) => {
   return data;
 };
 
+export const adminDeleteAdmin = async (adminId) => {
+  const { data, error } = await supabase
+    .from('bot_admins')
+    .delete()
+    .eq('admin_id', adminId)
+    .select();
+  if (error) throw error;
+  return data || [];
+};
+
+export const adminGetBotStats = async () => {
+  const now = Date.now();
+  const d3 = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const d7 = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const d30 = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    totalRes,
+    activeRes,
+    reg3Res,
+    reg7Res,
+    reg30Res,
+  ] = await Promise.all([
+    supabase.from('bot_users').select('telegram_id', { count: 'exact', head: true }),
+    supabase.from('bot_users').select('telegram_id', { count: 'exact', head: true }).gte('updated_at', d30),
+    supabase.from('bot_users').select('telegram_id', { count: 'exact', head: true }).gte('created_at', d3),
+    supabase.from('bot_users').select('telegram_id', { count: 'exact', head: true }).gte('created_at', d7),
+    supabase.from('bot_users').select('telegram_id', { count: 'exact', head: true }).gte('created_at', d30),
+  ]);
+
+  const maybeThrow = (res) => { if (res.error) throw res.error; };
+  [totalRes, activeRes, reg3Res, reg7Res, reg30Res].forEach(maybeThrow);
+
+  return {
+    total_users: totalRes.count || 0,
+    active_users: activeRes.count || 0,
+    registered_3d: reg3Res.count || 0,
+    registered_7d: reg7Res.count || 0,
+    registered_30d: reg30Res.count || 0,
+  };
+};
+
 export const adminListContent = async () => {
   const { data, error } = await supabase
     .from('bot_content')
@@ -126,9 +168,21 @@ export const adminListContent = async () => {
 };
 
 export const adminUpdateContent = async (key, text) => {
+  const { data: existing, error: exErr } = await supabase
+    .from('bot_content')
+    .select('key, label, image_url')
+    .eq('key', key)
+    .maybeSingle();
+  if (exErr) throw exErr;
+
   const { data, error } = await supabase
     .from('bot_content')
-    .upsert({ key, text }, { onConflict: 'key' })
+    .upsert({
+      key,
+      label: existing?.label || key,
+      image_url: existing?.image_url || null,
+      text,
+    }, { onConflict: 'key' })
     .select()
     .single();
   if (error) throw error;

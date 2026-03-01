@@ -4,16 +4,35 @@ import {
   adminListContent, adminUpdateContent,
   adminListPrices,  adminUpdatePrice,
   adminListTariffs, adminUpdateTariff,
+  adminGetBotStats,
 } from '../../services/supabase_admin.js';
 
 const lastAdminMode = new Map();
+const adminReplyMarkup = () => adminKb()?.reply_markup;
 
 export const setupAdmin = (bot) => {
   bot.command('admin', adminOnly, async (ctx) => {
-    await ctx.reply('⚙️ <b>Админ-панель</b>', {
-      parse_mode: 'HTML',
-      reply_markup: adminKb().reply_markup,
-    });
+    const stats = await adminGetBotStats().catch(() => ({
+      total_users: 0,
+      active_users: 0,
+      registered_3d: 0,
+      registered_7d: 0,
+      registered_30d: 0,
+    }));
+
+    const text =
+      `<b>Админ-панель</b>\n\n` +
+      `Всего пользователей: <b>${stats.total_users}</b>\n` +
+      `Активных (30 дней): <b>${stats.active_users}</b> из <b>${stats.total_users}</b>\n` +
+      `Регистрации за 3 дня: <b>${stats.registered_3d}</b>\n` +
+      `Регистрации за 7 дней: <b>${stats.registered_7d}</b>\n` +
+      `Регистрации за 30 дней: <b>${stats.registered_30d}</b>\n\n` +
+      `Откройте веб-админку кнопкой ниже.`;
+
+    const kb = adminKb();
+    const extra = { parse_mode: 'HTML' };
+    if (kb?.reply_markup) extra.reply_markup = kb.reply_markup;
+    await ctx.reply(text, extra);
   });
 
   bot.action('admin_content', adminOnly, async (ctx) => {
@@ -27,8 +46,10 @@ export const setupAdmin = (bot) => {
       `Текущий ключ: <code>${first.key}</code>\n` +
       `Текст:\n<pre>${(first.text || '').slice(0, 1000)}</pre>\n\n` +
       `Отправьте новый текст одним сообщением, чтобы обновить эту запись.`;
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup })
-      .catch(() => ctx.reply(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup }));
+    const rm = adminReplyMarkup();
+    const opts = rm ? { parse_mode: 'HTML', reply_markup: rm } : { parse_mode: 'HTML' };
+    await ctx.editMessageText(text, opts)
+      .catch(() => ctx.reply(text, opts));
   });
 
   bot.action('admin_prices', adminOnly, async (ctx) => {
@@ -43,8 +64,10 @@ export const setupAdmin = (bot) => {
       `label: <code>${first.label}</code>\n` +
       `tokens: <b>${first.tokens}</b>\n\n` +
       `Отправьте новое число токенов одним сообщением, чтобы обновить цену.`;
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup })
-      .catch(() => ctx.reply(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup }));
+    const rm = adminReplyMarkup();
+    const opts = rm ? { parse_mode: 'HTML', reply_markup: rm } : { parse_mode: 'HTML' };
+    await ctx.editMessageText(text, opts)
+      .catch(() => ctx.reply(text, opts));
   });
 
   bot.action('admin_tariffs', adminOnly, async (ctx) => {
@@ -61,8 +84,10 @@ export const setupAdmin = (bot) => {
       `price_rub: <b>${first.price_rub}</b>\n` +
       `stars: <b>${first.stars}</b>\n\n` +
       `Отправьте JSON-патч одним сообщением, например: {"tokens":200, "price_rub":199}`;
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup })
-      .catch(() => ctx.reply(text, { parse_mode: 'HTML', reply_markup: adminKb().reply_markup }));
+    const rm = adminReplyMarkup();
+    const opts = rm ? { parse_mode: 'HTML', reply_markup: rm } : { parse_mode: 'HTML' };
+    await ctx.editMessageText(text, opts)
+      .catch(() => ctx.reply(text, opts));
   });
 
   bot.on('text', async (ctx, next) => {
